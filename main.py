@@ -90,11 +90,13 @@ async def _tts(text: str, mp3: Path, srt: Path, voice: str):
 # ============================================================
 
 
-def _animate_wan(img: Path, scene_prompt: str, out: Path, seed: int):
+def _animate_wan(img: Path, scene_prompt: str, out: Path, seed: int,
+                 uncensored: bool = False):
     import wan_gen
     motion = ("natural body motion, subtle movement, "
               + scene_prompt + ", cinematic")
-    wan_gen.generate(str(img), motion, str(out), seed)
+    wan_gen.generate(str(img), motion, str(out), seed,
+                     safe_mode=not uncensored)
 
 
 # ============================================================
@@ -178,6 +180,7 @@ class VidReq(BaseModel):
     voice: str = "female"          # female | male | none
     duration_s: float = 3.5        # 2.0 - 8.0
     engine: str = "auto"           # auto | wan | static
+    uncensored: bool = False
 
 
 @app.exception_handler(HTTPException)
@@ -244,7 +247,7 @@ async def video(req: VidReq):
     if req.engine in ("auto", "wan"):
         try:
             await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
-                                    d / "anim.mp4", req.seed)
+                                    d / "anim.mp4", req.seed, req.uncensored)
             src = d / "anim.mp4"
             if src.exists():
                 if audio or (srt and srt.exists() and srt.read_text().strip()):

@@ -37,7 +37,8 @@ def _upload(img_path: Path) -> str:
 
 
 def generate(image_path: str, motion_prompt: str, out_mp4: str,
-             seed: int = 42, duration_s: float = 3.5) -> str:
+             seed: int = 42, duration_s: float = 3.5,
+             safe_mode: bool = True) -> str:
     token = os.environ.get("HF_TOKEN")
     hdrs = {"User-Agent": "nova-studio", "Content-Type": "application/json"}
     if token:
@@ -46,7 +47,7 @@ def generate(image_path: str, motion_prompt: str, out_mp4: str,
     img = {"path": server_path, "url": BASE + "/gradio_api/file=" + server_path,
            "orig_name": Path(image_path).name, "meta": {"_type": "gradio.FileData"}}
     data = [img, None, motion_prompt, 4, NEG, duration_s, 1, 1,
-            seed, False, 5, "UniPCMultistep", 3.0, 16, False, True]
+            seed, False, 5, "UniPCMultistep", 3.0, 16, safe_mode, True]
     r = _req(BASE + "/gradio_api/call/generate_video",
              json.dumps({"data": data}).encode(), hdrs, timeout=60)
     event_id = json.loads(r.read())["event_id"]

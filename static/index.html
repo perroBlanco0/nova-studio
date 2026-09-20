@@ -114,6 +114,9 @@
     <option value="auto">Animado (recomendado)</option>
     <option value="static">Con movimiento de cámara</option>
   </select>
+  <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;margin-top:14px;cursor:pointer">
+    <input type="checkbox" id="nsfw" style="width:auto"> Sin filtros
+  </label>
   <button class="btn" id="vbtn" onclick="genVid(this)">▶ Crear video</button>
   <button class="back" onclick="go(1)">← volver al personaje</button>
 </div>
@@ -191,7 +194,8 @@ async function genVid(b){
       char_prompt:charDesc, seed, scene_prompt:p, dialogue:document.getElementById('dialog').value,
       voice:document.getElementById('voice').value,
       duration_s:parseFloat(document.getElementById('dur').value),
-      engine:document.getElementById('engine').value})});
+      engine:document.getElementById('engine').value,
+      uncensored:document.getElementById('nsfw').checked})});
     const r=await res.json().catch(()=>({}));
     clearInterval(tick);
     if(!res.ok||!r.ok){ spin.textContent=(r.error&&r.error.message)||'No se pudo crear — intenta de nuevo'; b.disabled=false; b.textContent='▶ Crear video'; return; }
