@@ -168,12 +168,20 @@ async function genChar(b){
     seed=r.seed;
     const views=r.views||{front:r.image_url};
     let first=null;
-    await Promise.all(VIEWS.map(async v=>{
-      const url=views[v.k]; if(!url) { document.getElementById('cell-'+v.k).outerHTML=''; return; }
-      await new Promise((ok,fail)=>{ const im=new Image(); im.onload=ok; im.onerror=fail; im.src=url; });
-      if(!first) first=url;
-      document.getElementById('cell-'+v.k).outerHTML='<div class="cell"><img class="fadein" src="'+url+'"><b>'+v.lb+'</b></div>';
-    }));
+    for(const v of VIEWS){
+      const url=views[v.k];
+      const cell=document.getElementById('cell-'+v.k);
+      if(!url||!cell) continue;
+      let okImg=false;
+      for(let att=0;att<3&&!okImg;att++){
+        okImg=await new Promise(ok=>{ const im=new Image(); im.onload=()=>ok(true);
+          im.onerror=()=>ok(false); im.src=url+(att?'&r='+att:''); });
+        if(!okImg) await new Promise(z=>setTimeout(z,1500));
+      }
+      if(okImg){ if(!first) first=url;
+        cell.outerHTML='<div class="cell"><img class="fadein" src="'+url+'"><b>'+v.lb+'</b></div>'; }
+      else cell.remove();
+    }
     if(!first) throw 0;
     const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,22),desc:charDesc,seed,url:first});
     localStorage.chars=JSON.stringify(chars.slice(-8)); loadSaved();
