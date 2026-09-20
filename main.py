@@ -124,9 +124,9 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
     frames = int(dur * 24)
     step = 0.15 / frames
     # render at output size directly — avoids the 2048x3072 intermediate that OOMs free tier
-    vf = ("scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+    vf = ("scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
           "zoompan=z='min(zoom+%.6f,1.15)':"
-          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=1080x1920:fps=24" % (step, frames))
+          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=720x1280:fps=24" % (step, frames))
     if srt and srt.exists() and srt.read_text().strip():
         vf += _sub_filter(srt)
     if audio:
@@ -144,7 +144,7 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
 
 
 def _mux(clip: Path, audio: Path | None, srt: Path | None, out: Path):
-    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+    vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280"
     if srt and srt.exists() and srt.read_text().strip():
         vf += _sub_filter(srt)
     cmd = ["ffmpeg", "-y", "-i", str(clip)]
