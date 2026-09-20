@@ -33,8 +33,13 @@
   .btn.ghost{background:#1c1c28;font-weight:600}
   .preview{margin-top:18px;text-align:center}
   .preview img,.preview video{max-width:270px;width:100%;border-radius:16px;border:1px solid #333;box-shadow:0 12px 40px #0008}
+  .shimmer{max-width:270px;width:100%;aspect-ratio:9/16;margin:0 auto;border-radius:16px;background:linear-gradient(100deg,#15151f 40%,#23232f 50%,#15151f 60%);background-size:200% 100%;animation:shim 1.4s infinite}
+  @keyframes shim{to{background-position:-200% 0}}
+  .fadein{animation:fadein .6s ease}
+  @keyframes fadein{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
   .spin{margin-top:16px;color:var(--acc2);font-size:14px;text-align:center}
-  .spin::after{content:'';animation:dots 1.4s infinite}
+  .spin:empty{display:none}
+  .spin:not(:empty)::after{content:'';animation:dots 1.4s infinite}
   @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
   a.dl{display:inline-block;margin-top:16px;padding:13px 28px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:12px;text-decoration:none;font-weight:700}
   .chars{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
@@ -102,10 +107,10 @@
     </div>
   </div>
   <div class="togg" onclick="var c=document.getElementById('anim');c.checked=!c.checked">
-    <input type="checkbox" id="anim" checked>
-    <span>Animación real (Vidu)<small>img→video con movimiento · usa créditos; off → solo movimiento de cámara</small></span>
+    <input type="checkbox" id="anim" onclick="event.stopPropagation()">
+    <span>Animación real (Vidu)<small>img→video con movimiento real · usa créditos Vidu · off → movimiento de cámara</small></span>
   </div>
-  <button class="btn" onclick="genVid(this)">▶ Generar video</button>
+  <button class="btn" id="vbtn" onclick="genVid(this)">▶ Generar video</button>
   <button class="back" onclick="go(1)">← volver al modelo</button>
 </div>
 
@@ -140,9 +145,16 @@ function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.d
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
   charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe al modelo');
-  b.disabled=true; document.getElementById('cspin').textContent='Creando la cara';
-  try{ const r=await (await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed})})).json();
-    seed=r.seed; document.getElementById('cprev').innerHTML='<img src="'+r.image_url+'">';
+  b.disabled=true; document.getElementById('cnext').style.display='none';
+  document.getElementById('cspin').textContent='Creando la cara';
+  document.getElementById('cprev').innerHTML='<div class="shimmer"></div>';
+  try{ const res=await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed})});
+    if(!res.ok) throw 0;
+    const r=await res.json();
+    seed=r.seed;
+    // reveal only when the image is actually loaded
+    await new Promise((ok,fail)=>{ const im=new Image(); im.onload=ok; im.onerror=fail; im.src=r.image_url; });
+    document.getElementById('cprev').innerHTML='<img class="fadein" src="'+r.image_url+'">';
     const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,22),desc:charDesc,seed,url:r.image_url});
     localStorage.chars=JSON.stringify(chars.slice(-8)); loadSaved();
     document.getElementById('cnext').style.display='block'; document.getElementById('cspin').textContent='';
@@ -151,17 +163,24 @@ async function genChar(b){
 }
 async function genVid(b){
   const p=document.getElementById('prompt').value.trim(); if(!p) return alert('Falta el prompt');
+  if(b.disabled) return; b.disabled=true; b.textContent='Generando…';
   go(3); document.getElementById('vprev').innerHTML=''; document.getElementById('vspin').style.display='block';
   document.getElementById('vstat').textContent='';
+  const stages=['Generando la escena','Renderizando video','Casi listo']; let si=0;
+  const spin=document.getElementById('vspin'); spin.textContent=stages[0];
+  const tick=setInterval(()=>{ si=Math.min(si+1,stages.length-1); spin.textContent=stages[si]; },25000);
   try{
-    const r=await (await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    const res=await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       char_prompt:charDesc, seed, scene_prompt:p, dialogue:document.getElementById('dialog').value,
-      voice:document.getElementById('voice').value, animate:document.getElementById('anim').checked})})).json();
-    document.getElementById('vspin').style.display='none';
+      voice:document.getElementById('voice').value, animate:document.getElementById('anim').checked})});
+    clearInterval(tick); spin.style.display='none';
+    if(!res.ok){ spin.style.display='block'; spin.textContent='Error generando — reintenta'; b.disabled=false; b.textContent='▶ Generar video'; return; }
+    const r=await res.json();
     if(r.fallback) document.getElementById('vstat').textContent='Vidu sin créditos — salió en modo cámara';
     else document.getElementById('vstat').textContent='Listo';
-    document.getElementById('vprev').innerHTML='<video src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar mp4</a>';
-  }catch(e){ document.getElementById('vspin').textContent='Error generando — reintenta'; }
+    document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar mp4</a>';
+  }catch(e){ clearInterval(tick); spin.textContent='Error generando — reintenta'; }
+  b.disabled=false; b.textContent='▶ Generar video';
 }
 </script>
 </body>

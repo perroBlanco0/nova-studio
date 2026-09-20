@@ -66,10 +66,12 @@ async def _tts(text: str, mp3: Path, srt: Path, voice: str):
 
 
 def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: float):
-    frames = int(dur * 30)
-    step = 0.18 / frames
-    vf = ("scale=2048:3072,zoompan=z='min(zoom+%.6f,1.18)':"
-          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=1080x1920:fps=30" % (step, frames))
+    frames = int(dur * 24)
+    step = 0.15 / frames
+    # render at output size directly — avoids the 2048x3072 intermediate that OOMs free tier
+    vf = ("scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+          "zoompan=z='min(zoom+%.6f,1.15)':"
+          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=1080x1920:fps=24" % (step, frames))
     if srt and srt.exists() and srt.read_text().strip():
         sub = str(srt).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
         vf += ",subtitles='%s':force_style='FontName=DejaVu Sans,FontSize=14,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=340'" % sub
