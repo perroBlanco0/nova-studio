@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NOVA Studio — videos IA</title>
+<title>NOVA Studio — crea tu video</title>
 <style>
   :root{--bg:#08080d;--card:#111119;--line:#23232f;--acc:#fe2c55;--acc2:#25f4ee;--txt:#f2f2f5;--mut:#8a8a99}
   *{box-sizing:border-box;margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
@@ -11,7 +11,6 @@
   .logo{font-size:30px;font-weight:800;letter-spacing:1px}
   .logo b{color:var(--acc)} .logo i{color:var(--acc2);font-style:normal}
   .sub{color:var(--mut);font-size:14px;margin:6px 0 30px}
-  /* stepper */
   .steps{display:flex;align-items:center;gap:0;margin-bottom:34px}
   .st{display:flex;flex-direction:column;align-items:center;gap:6px;width:110px}
   .st .dot{width:34px;height:34px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--mut);transition:.3s}
@@ -20,8 +19,7 @@
   .st.on .lb{color:var(--txt)}
   .st.done .dot{background:#14532d;color:#4ade80}
   .ln{width:60px;height:2px;background:var(--line);margin-bottom:22px}
-  /* card */
-  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;width:100%;max-width:600px;box-shadow:0 20px 60px #00000055}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;width:100%;max-width:640px;box-shadow:0 20px 60px #00000055}
   .card h2{font-size:19px;margin-bottom:4px}
   .card .hint{color:var(--mut);font-size:13px;margin-bottom:18px}
   label{display:block;font-size:12px;color:var(--mut);margin:16px 0 7px;text-transform:uppercase;letter-spacing:.6px}
@@ -32,8 +30,12 @@
   .btn:hover{transform:translateY(-1px)} .btn:disabled{opacity:.45;cursor:wait;transform:none}
   .btn.ghost{background:#1c1c28;font-weight:600}
   .preview{margin-top:18px;text-align:center}
-  .preview img,.preview video{max-width:270px;width:100%;border-radius:16px;border:1px solid #333;box-shadow:0 12px 40px #0008}
-  .shimmer{max-width:270px;width:100%;aspect-ratio:9/16;margin:0 auto;border-radius:16px;background:linear-gradient(100deg,#15151f 40%,#23232f 50%,#15151f 60%);background-size:200% 100%;animation:shim 1.4s infinite}
+  .preview video{max-width:270px;width:100%;border-radius:16px;border:1px solid #333;box-shadow:0 12px 40px #0008}
+  .sheet{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}
+  .sheet img{width:100%;border-radius:12px;border:1px solid #333;animation:fadein .6s ease}
+  .sheet .cell{position:relative}
+  .sheet .cell b{position:absolute;left:6px;bottom:6px;font-size:10px;color:#fff;background:#000a;padding:2px 7px;border-radius:8px}
+  .sheet .cell.loading{aspect-ratio:9/16;border-radius:12px;background:linear-gradient(100deg,#15151f 40%,#23232f 50%,#15151f 60%);background-size:200% 100%;animation:shim 1.4s infinite}
   @keyframes shim{to{background-position:-200% 0}}
   .fadein{animation:fadein .6s ease}
   @keyframes fadein{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
@@ -46,89 +48,96 @@
   .chars div{border:1px solid var(--line);border-radius:12px;padding:8px 14px;font-size:13px;cursor:pointer;transition:.2s;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chars div:hover{border-color:var(--acc2)}
   .chars div.sel{border-color:var(--acc);background:#241019}
-  .togg{display:flex;align-items:center;gap:10px;margin-top:18px;background:#0d0d14;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
-  .togg input{width:auto}
-  .togg span{font-size:14px} .togg small{color:var(--mut);font-size:12px;display:block}
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
-  /* responsive */
   @media(max-width:640px){
     body{padding:20px 12px 40px}
     .logo{font-size:24px}
     .st{width:72px}.st .lb{font-size:9px}
     .ln{width:26px}
     .card{padding:20px 16px;border-radius:16px}
-    .preview img,.preview video{max-width:100%;max-height:60vh}
+    .sheet{grid-template-columns:repeat(2,1fr)}
+    .preview video{max-width:100%;max-height:60vh}
     .row{flex-direction:column;gap:0}
   }
 </style>
 </head>
 <body>
 <div class="logo">NOVA<b>Studio</b><i>.</i></div>
-<div class="sub">Tu modelo IA → prompt → video para TikTok</div>
+<div class="sub">Crea tu personaje → describe tu video → descárgalo</div>
 
 <div class="steps">
-  <div class="st on" id="s1"><div class="dot">1</div><div class="lb">MODELO</div></div>
+  <div class="st on" id="s1"><div class="dot">1</div><div class="lb">PERSONAJE</div></div>
   <div class="ln"></div>
-  <div class="st" id="s2"><div class="dot">2</div><div class="lb">PROMPT</div></div>
+  <div class="st" id="s2"><div class="dot">2</div><div class="lb">ESCENA</div></div>
   <div class="ln"></div>
   <div class="st" id="s3"><div class="dot">3</div><div class="lb">VIDEO</div></div>
 </div>
 
 <div class="card" id="step1">
-  <h2>Crea o elige tu modelo</h2>
-  <div class="hint">Describe su look — queda guardado para reusarlo en más videos</div>
+  <h2>Crea tu personaje</h2>
+  <div class="hint">Describe cómo se ve — te la mostramos de frente, perfil, espalda y cara</div>
   <div id="savedWrap" style="display:none">
-    <label>Guardados</label>
+    <label>Tus personajes</label>
     <div class="chars" id="saved"></div>
   </div>
-  <label>Presets</label>
+  <label>Ideas rápidas</label>
   <div class="chars" id="presets"></div>
-  <label>Descripción del modelo</label>
-  <textarea id="cdesc" placeholder="Ej: chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acné, lunar junto al labio, hoodie gris gastado"></textarea>
-  <button class="btn" onclick="genChar(this)">✦ Generar modelo</button>
+  <label>¿Cómo es tu personaje?</label>
+  <textarea id="cdesc" placeholder="Ej: chica ~22, pelo largo oscuro ondulado, piel canela, cuerpo atlético, vestido blanco ajustado"></textarea>
+  <button class="btn" onclick="genChar(this)">✦ Crear personaje</button>
   <div class="spin" id="cspin"></div>
-  <div class="preview" id="cprev"></div>
-  <button class="btn ghost" id="cnext" style="display:none" onclick="go(2)">Usar este modelo →</button>
+  <div class="sheet" id="cprev"></div>
+  <button class="btn ghost" id="cnext" style="display:none" onclick="go(2)">Usar este personaje →</button>
 </div>
 
 <div class="card" id="step2" style="display:none">
-  <h2>De qué trata el video</h2>
-  <div class="hint">Describe la escena y la acción — la app arma la imagen y la anima</div>
+  <h2>¿De qué trata el video?</h2>
+  <div class="hint">Describe qué hace tu personaje — nosotros armamos el video</div>
   <label>Escena / acción</label>
-  <textarea id="prompt" placeholder="Ej: celebra que le subieron el elo, mira la cámara y sonríe"></textarea>
+  <textarea id="prompt" placeholder="Ej: camina por la playa al atardecer, gira y sonríe a cámara"></textarea>
   <label>Lo que dice (opcional)</label>
-  <input id="dialog" placeholder="Ej: por fin gané una ranked, wenaaa">
+  <input id="dialog" placeholder="Ej: wenaaa, por fin es viernes">
   <div class="row">
     <div>
       <label>Voz</label>
-      <select id="voice"><option value="female">Mujer (chilena)</option><option value="male">Hombre (chileno)</option></select>
+      <select id="voice"><option value="female">Mujer</option><option value="male">Hombre</option><option value="none">Sin voz</option></select>
+    </div>
+    <div>
+      <label>Duración</label>
+      <select id="dur"><option value="3.5">Corto (3.5s)</option><option value="5">Medio (5s)</option><option value="8">Largo (8s)</option></select>
     </div>
   </div>
-  <div class="togg" onclick="var c=document.getElementById('anim');c.checked=!c.checked">
-    <input type="checkbox" id="anim" onclick="event.stopPropagation()">
-    <span>Animación real (Vidu)<small>img→video con movimiento real · usa créditos Vidu · off → movimiento de cámara</small></span>
-  </div>
-  <button class="btn" id="vbtn" onclick="genVid(this)">▶ Generar video</button>
-  <button class="back" onclick="go(1)">← volver al modelo</button>
+  <label>Estilo del video</label>
+  <select id="engine">
+    <option value="auto">Animado (recomendado)</option>
+    <option value="static">Con movimiento de cámara</option>
+  </select>
+  <button class="btn" id="vbtn" onclick="genVid(this)">▶ Crear video</button>
+  <button class="back" onclick="go(1)">← volver al personaje</button>
 </div>
 
 <div class="card" id="step3" style="display:none">
   <h2>Tu video</h2>
   <div class="hint" id="vstat"></div>
-  <div class="spin" id="vspin" style="display:none">Generando — puede tardar 1-5 min</div>
+  <div class="spin" id="vspin" style="display:none"></div>
   <div class="preview" id="vprev"></div>
-  <button class="back" onclick="go(2)">← nuevo prompt</button>
+  <button class="back" onclick="go(2)">← hacer otro video</button>
 </div>
 
 <script>
 let charDesc='', seed=null;
 const savedEl=document.getElementById('saved');
+const VIEWS=[
+ {k:'front',lb:'Frente',p:'full body front view, standing, facing camera'},
+ {k:'profile',lb:'Perfil',p:'full body side profile view, standing'},
+ {k:'back',lb:'Espalda',p:'full body back view, standing, facing away'},
+ {k:'face',lb:'Cara',p:'extreme close-up face portrait, detailed eyes and skin'}];
 const PRESETS=[
  {name:'NOVA casual',desc:'chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acne, lunar junto al labio, hoodie gris gastado, imperfecta y real',seed:4242},
- {name:'Glam playa',desc:'glamorous latina influencer ~24, long wavy dark brown hair, tanned skin, fit athletic body, tight summer dress, confident pose, tropical beach',seed:7777},
- {name:'Gamer night',desc:'chica gamer ~22, pelo recogido desordenado, ojeras leves, audifonos grandes, poleron oversize, luces rgb tenues de fondo, setup pc',seed:1313}];
+ {name:'Glam playa',desc:'glamorous latina influencer ~24, long wavy dark brown hair, tanned skin, fit athletic body, tight summer dress, confident, tropical beach style',seed:7777},
+ {name:'Gamer night',desc:'chica gamer ~22, pelo recogido desordenado, ojeras leves, audifonos grandes, poleron oversize, luces rgb tenues, setup pc',seed:1313}];
 (function(){ const el=document.getElementById('presets');
   PRESETS.forEach(c=>{ const d=document.createElement('div'); d.textContent=c.name;
     d.onclick=()=>{ charDesc=c.desc; seed=c.seed; document.getElementById('cdesc').value=c.desc;
@@ -138,49 +147,59 @@ function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.cha
   document.getElementById('savedWrap').style.display=cs.length?'block':'none';
   cs.forEach((c)=>{ const d=document.createElement('div'); d.textContent=c.name;
     d.onclick=()=>{ charDesc=c.desc; seed=c.seed; [...savedEl.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel');
-      document.getElementById('cprev').innerHTML='<img src="'+c.url+'">'; document.getElementById('cnext').style.display='block'; };
+      document.getElementById('cprev').innerHTML='<div class="cell"><img src="'+c.url+'"><b>Lista</b></div>';
+      document.getElementById('cnext').style.display='block'; };
     savedEl.appendChild(d); }); }
 loadSaved();
 function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
-  charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe al modelo');
+  charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe a tu personaje');
   b.disabled=true; document.getElementById('cnext').style.display='none';
-  document.getElementById('cspin').textContent='Creando la cara';
-  document.getElementById('cprev').innerHTML='<div class="shimmer"></div>';
-  try{ const res=await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed})});
+  document.getElementById('cspin').textContent='Creando tu personaje';
+  const prev=document.getElementById('cprev');
+  prev.innerHTML=VIEWS.map(v=>'<div class="cell loading" id="cell-'+v.k+'"></div>').join('');
+  try{ const res=await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed,views:VIEWS.map(v=>v.k)})});
     if(!res.ok) throw 0;
     const r=await res.json();
     seed=r.seed;
-    // reveal only when the image is actually loaded
-    await new Promise((ok,fail)=>{ const im=new Image(); im.onload=ok; im.onerror=fail; im.src=r.image_url; });
-    document.getElementById('cprev').innerHTML='<img class="fadein" src="'+r.image_url+'">';
-    const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,22),desc:charDesc,seed,url:r.image_url});
+    const views=r.views||{front:r.image_url};
+    let first=null;
+    await Promise.all(VIEWS.map(async v=>{
+      const url=views[v.k]; if(!url) { document.getElementById('cell-'+v.k).outerHTML=''; return; }
+      await new Promise((ok,fail)=>{ const im=new Image(); im.onload=ok; im.onerror=fail; im.src=url; });
+      if(!first) first=url;
+      document.getElementById('cell-'+v.k).outerHTML='<div class="cell"><img class="fadein" src="'+url+'"><b>'+v.lb+'</b></div>';
+    }));
+    if(!first) throw 0;
+    const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,22),desc:charDesc,seed,url:first});
     localStorage.chars=JSON.stringify(chars.slice(-8)); loadSaved();
     document.getElementById('cnext').style.display='block'; document.getElementById('cspin').textContent='';
-  }catch(e){ document.getElementById('cspin').textContent='Error — reintenta'; }
+  }catch(e){ document.getElementById('cspin').textContent='No se pudo crear — intenta de nuevo'; }
   b.disabled=false;
 }
 async function genVid(b){
-  const p=document.getElementById('prompt').value.trim(); if(!p) return alert('Falta el prompt');
-  if(b.disabled) return; b.disabled=true; b.textContent='Generando…';
+  const p=document.getElementById('prompt').value.trim(); if(!p) return alert('Falta describir la escena');
+  if(b.disabled) return; b.disabled=true; b.textContent='Creando…';
   go(3); document.getElementById('vprev').innerHTML=''; document.getElementById('vspin').style.display='block';
   document.getElementById('vstat').textContent='';
-  const stages=['Generando la escena','Renderizando video','Casi listo']; let si=0;
+  const stages=['Armando la escena','Dándole movimiento','Casi listo']; let si=0;
   const spin=document.getElementById('vspin'); spin.textContent=stages[0];
   const tick=setInterval(()=>{ si=Math.min(si+1,stages.length-1); spin.textContent=stages[si]; },25000);
   try{
     const res=await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       char_prompt:charDesc, seed, scene_prompt:p, dialogue:document.getElementById('dialog').value,
-      voice:document.getElementById('voice').value, animate:document.getElementById('anim').checked})});
-    clearInterval(tick); spin.style.display='none';
-    if(!res.ok){ spin.style.display='block'; spin.textContent='Error generando — reintenta'; b.disabled=false; b.textContent='▶ Generar video'; return; }
-    const r=await res.json();
-    if(r.fallback) document.getElementById('vstat').textContent='Vidu sin créditos — salió en modo cámara';
-    else document.getElementById('vstat').textContent='Listo';
-    document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar mp4</a>';
-  }catch(e){ clearInterval(tick); spin.textContent='Error generando — reintenta'; }
-  b.disabled=false; b.textContent='▶ Generar video';
+      voice:document.getElementById('voice').value,
+      duration_s:parseFloat(document.getElementById('dur').value),
+      engine:document.getElementById('engine').value})});
+    const r=await res.json().catch(()=>({}));
+    clearInterval(tick);
+    if(!res.ok||!r.ok){ spin.textContent=(r.error&&r.error.message)||'No se pudo crear — intenta de nuevo'; b.disabled=false; b.textContent='▶ Crear video'; return; }
+    spin.style.display='none';
+    document.getElementById('vstat').textContent=r.fallback?'Salió con movimiento de cámara':'';
+    document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar video</a>';
+  }catch(e){ clearInterval(tick); spin.textContent='No se pudo crear — intenta de nuevo'; }
+  b.disabled=false; b.textContent='▶ Crear video';
 }
 </script>
 </body>
