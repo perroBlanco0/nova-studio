@@ -94,6 +94,24 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
     subprocess.run(cmd, check=True, capture_output=True)
 
 
+def _mux(clip: Path, audio: Path | None, srt: Path | None, out: Path):
+    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+    if srt and srt.exists() and srt.read_text().strip():
+        sub = str(srt).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+        vf += ",subtitles='%s':force_style='FontName=DejaVu Sans,FontSize=14,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=340'" % sub
+    cmd = ["ffmpeg", "-y", "-i", str(clip)]
+    if audio:
+        cmd += ["-i", str(audio)]
+    cmd += ["-filter_complex", "[0:v]" + vf + "[v]", "-map", "[v]"]
+    if audio:
+        cmd += ["-map", "1:a", "-c:a", "aac", "-shortest"]
+    else:
+        cmd += ["-map", "0:a?", "-c:a", "aac"]
+    cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", str(out)]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 @app.post("/api/video")
 async def video(req: VidReq):
     vid = uuid.uuid4().hex[:10]
@@ -118,22 +136,36 @@ async def video(req: VidReq):
         dur = 6.0
 
     out = d / "final.mp4"
-    vidu_err = None
+    anim_err = None
     if req.animate:
         try:
-            import vidu_gen
-            await asyncio.to_thread(vidu_gen.generate_sync, img, req.scene_prompt, out)
+            import wan_gen
+            motion = ("natural body motion, subtle movement, "
+                      + req.scene_prompt + ", cinematic")
+            await asyncio.to_thread(wan_gen.generate, str(img), motion,
+                                    str(d / "anim.mp4"), req.seed)
+            src = d / "anim.mp4"
+            if src.exists():
+                if audio or (srt and srt.exists() and srt.read_text().strip()):
+                    await asyncio.to_thread(_mux, src, audio, srt, out)
+                else:
+                    src.rename(out)
         except Exception as e:
-            vidu_err = str(e)
-            out = None
-    if out is None or not (d / "final.mp4").exists():
+            anim_err = f"wan: {e}"
+        if not out.exists():
+            try:
+                import vidu_gen
+                await asyncio.to_thread(vidu_gen.generate_sync, img, req.scene_prompt, out)
+            except Exception as e:
+                anim_err = (anim_err or "") + f" vidu: {e}"
+    if not out.exists():
         try:
-            await asyncio.to_thread(_render, img, audio, srt, d / "final.mp4", dur)
+            await asyncio.to_thread(_render, img, audio, srt, out, dur)
         except subprocess.CalledProcessError as e:
             raise HTTPException(500, "ffmpeg failed: " + e.stderr.decode()[-300:])
     resp = {"video_id": vid, "download": f"/api/video/{vid}/final.mp4"}
-    if vidu_err:
-        resp["fallback"] = vidu_err
+    if anim_err:
+        resp["fallback"] = anim_err[:400]
     return resp
 
 
