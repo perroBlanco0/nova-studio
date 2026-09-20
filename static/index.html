@@ -78,6 +78,8 @@
     <label>Guardados</label>
     <div class="chars" id="saved"></div>
   </div>
+  <label>Presets</label>
+  <div class="chars" id="presets"></div>
   <label>Descripción del modelo</label>
   <textarea id="cdesc" placeholder="Ej: chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acné, lunar junto al labio, hoodie gris gastado"></textarea>
   <button class="btn" onclick="genChar(this)">✦ Generar modelo</button>
@@ -118,6 +120,15 @@
 <script>
 let charDesc='', seed=null;
 const savedEl=document.getElementById('saved');
+const PRESETS=[
+ {name:'NOVA casual',desc:'chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acne, lunar junto al labio, hoodie gris gastado, imperfecta y real',seed:4242},
+ {name:'Glam playa',desc:'glamorous latina influencer ~24, long wavy dark brown hair, tanned skin, fit athletic body, tight summer dress, confident pose, tropical beach',seed:7777},
+ {name:'Gamer night',desc:'chica gamer ~22, pelo recogido desordenado, ojeras leves, audifonos grandes, poleron oversize, luces rgb tenues de fondo, setup pc',seed:1313}];
+(function(){ const el=document.getElementById('presets');
+  PRESETS.forEach(c=>{ const d=document.createElement('div'); d.textContent=c.name;
+    d.onclick=()=>{ charDesc=c.desc; seed=c.seed; document.getElementById('cdesc').value=c.desc;
+      [...el.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel'); genChar(document.querySelector('#step1 .btn')); };
+    el.appendChild(d); }); })();
 function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.chars||'[]');
   document.getElementById('savedWrap').style.display=cs.length?'block':'none';
   cs.forEach((c)=>{ const d=document.createElement('div'); d.textContent=c.name;
