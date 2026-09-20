@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOVA Studio — videos IA</title>
+<style>
+  *{box-sizing:border-box;margin:0;font-family:system-ui,-apple-system,sans-serif}
+  body{background:#0b0b10;color:#eee;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px}
+  h1{font-size:28px;letter-spacing:.5px;margin-bottom:4px}
+  h1 span{color:#a78bfa}
+  .sub{color:#888;font-size:14px;margin-bottom:28px}
+  .steps{display:flex;gap:8px;margin-bottom:28px}
+  .steps div{padding:6px 14px;border-radius:20px;background:#1a1a24;font-size:13px;color:#777}
+  .steps div.on{background:#7c3aed;color:#fff}
+  .card{background:#14141e;border:1px solid #262636;border-radius:16px;padding:28px;width:100%;max-width:560px}
+  label{display:block;font-size:13px;color:#999;margin:14px 0 6px}
+  input,textarea,select{width:100%;background:#0b0b10;border:1px solid #2a2a3c;border-radius:10px;padding:11px 13px;color:#eee;font-size:15px}
+  textarea{resize:vertical;min-height:80px}
+  button{width:100%;margin-top:20px;padding:13px;border:0;border-radius:10px;background:#7c3aed;color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:#262636}
+  .preview{margin-top:16px;text-align:center}
+  .preview img,.preview video{max-width:280px;border-radius:14px;border:1px solid #333}
+  .spin{margin-top:14px;color:#a78bfa;font-size:14px;text-align:center}
+  a.dl{display:inline-block;margin-top:14px;padding:12px 22px;background:#16a34a;color:#fff;border-radius:10px;text-decoration:none;font-weight:600}
+  .chars{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .chars div{border:1px solid #2a2a3c;border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .chars div.sel{border-color:#a78bfa;background:#1e1530}
+</style>
+</head>
+<body>
+<h1>NOVA<span>Studio</span></h1>
+<div class="sub">Videos con tu modelo IA en 3 pasos</div>
+<div class="steps"><div id="s1">1. Modelo</div><div id="s2">2. Prompt</div><div id="s3">3. Video</div></div>
+
+<div class="card" id="step1">
+  <label>Personajes guardados</label>
+  <div class="chars" id="saved"></div>
+  <label>Describe tu modelo IA</label>
+  <textarea id="cdesc" placeholder="Ej: chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acné, lunar junto al labio, hoodie gris gastado"></textarea>
+  <button onclick="genChar()">Generar modelo</button>
+  <div class="preview" id="cprev"></div>
+  <div class="spin" id="cspin"></div>
+  <button class="ghost" id="cnext" style="display:none" onclick="go(2)">Usar este modelo →</button>
+</div>
+
+<div class="card" id="step2" style="display:none">
+  <label>De qué trata el video (escena / acción)</label>
+  <textarea id="prompt" placeholder="Ej: celebra que le subieron el elo, mira la cámara y sonríe"></textarea>
+  <label>Lo que dice (opcional, voz chilena)</label>
+  <input id="dialog" placeholder="Ej: por fin gané una ranked, wenaaa">
+  <label>Voz</label>
+  <select id="voice"><option value="female">Mujer (chilena)</option><option value="male">Hombre (chileno)</option></select>
+  <button onclick="genVid()">Generar video</button>
+</div>
+
+<div class="card" id="step3" style="display:none">
+  <div class="spin" id="vspin">Generando… puede tardar 1-3 min</div>
+  <div class="preview" id="vprev"></div>
+</div>
+
+<script>
+let charDesc='', seed=null, cur=1;
+const savedEl=document.getElementById('saved');
+function loadSaved(){ savedEl.innerHTML=''; (JSON.parse(localStorage.chars||'[]')).forEach((c,i)=>{
+  const d=document.createElement('div'); d.textContent=c.name;
+  d.onclick=()=>{ charDesc=c.desc; seed=c.seed; [...savedEl.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel');
+    document.getElementById('cprev').innerHTML='<img src="'+c.url+'">'; document.getElementById('cnext').style.display='block'; };
+  savedEl.appendChild(d); }); }
+loadSaved();
+function go(n){ cur=n; for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
+  document.getElementById('s'+i).className=i<=n?'on':''; } }
+async function genChar(){
+  charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe al modelo');
+  const b=event.target; b.disabled=true; document.getElementById('cspin').textContent='Generando cara…';
+  try{ const r=await (await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed})})).json();
+    seed=r.seed; document.getElementById('cprev').innerHTML='<img src="'+r.image_url+'">';
+    const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,20),desc:charDesc,seed,url:r.image_url});
+    localStorage.chars=JSON.stringify(chars.slice(-8)); loadSaved();
+    document.getElementById('cnext').style.display='block'; document.getElementById('cspin').textContent='';
+  }catch(e){ document.getElementById('cspin').textContent='Error, reintenta'; }
+  b.disabled=false;
+}
+async function genVid(){
+  const p=document.getElementById('prompt').value.trim(); if(!p) return alert('Falta el prompt');
+  go(3); document.getElementById('vprev').innerHTML=''; document.getElementById('vspin').style.display='block';
+  try{
+    const r=await (await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      char_prompt:charDesc, seed, scene_prompt:p, dialogue:document.getElementById('dialog').value, voice:document.getElementById('voice').value})})).json();
+    document.getElementById('vspin').style.display='none';
+    document.getElementById('vprev').innerHTML='<video src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>Descargar mp4</a>';
+  }catch(e){ document.getElementById('vspin').textContent='Error generando — reintenta'; }
+}
+</script>
+</body>
+</html>

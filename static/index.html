@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOVA Studio — videos IA</title>
+<style>
+  :root{--bg:#08080d;--card:#111119;--line:#23232f;--acc:#fe2c55;--acc2:#25f4ee;--txt:#f2f2f5;--mut:#8a8a99}
+  *{box-sizing:border-box;margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
+  body{background:radial-gradient(1200px 600px at 50% -10%,#1a0b14 0%,var(--bg) 55%);color:var(--txt);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 20px 60px}
+  .logo{font-size:30px;font-weight:800;letter-spacing:1px}
+  .logo b{color:var(--acc)} .logo i{color:var(--acc2);font-style:normal}
+  .sub{color:var(--mut);font-size:14px;margin:6px 0 30px}
+  /* stepper */
+  .steps{display:flex;align-items:center;gap:0;margin-bottom:34px}
+  .st{display:flex;flex-direction:column;align-items:center;gap:6px;width:110px}
+  .st .dot{width:34px;height:34px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--mut);transition:.3s}
+  .st .lb{font-size:11px;color:var(--mut);letter-spacing:.4px}
+  .st.on .dot{background:linear-gradient(135deg,var(--acc),#b01f5e);color:#fff;box-shadow:0 0 18px #fe2c5544}
+  .st.on .lb{color:var(--txt)}
+  .st.done .dot{background:#14532d;color:#4ade80}
+  .ln{width:60px;height:2px;background:var(--line);margin-bottom:22px}
+  /* card */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;width:100%;max-width:600px;box-shadow:0 20px 60px #00000055}
+  .card h2{font-size:19px;margin-bottom:4px}
+  .card .hint{color:var(--mut);font-size:13px;margin-bottom:18px}
+  label{display:block;font-size:12px;color:var(--mut);margin:16px 0 7px;text-transform:uppercase;letter-spacing:.6px}
+  input,textarea,select{width:100%;background:#0d0d14;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--txt);font-size:15px;outline:none;transition:border .2s}
+  input:focus,textarea:focus,select:focus{border-color:var(--acc)}
+  textarea{resize:vertical;min-height:84px}
+  .btn{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--acc),#c81e5b);color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:transform .1s,opacity .2s}
+  .btn:hover{transform:translateY(-1px)} .btn:disabled{opacity:.45;cursor:wait;transform:none}
+  .btn.ghost{background:#1c1c28;font-weight:600}
+  .preview{margin-top:18px;text-align:center}
+  .preview img,.preview video{max-width:270px;width:100%;border-radius:16px;border:1px solid #333;box-shadow:0 12px 40px #0008}
+  .spin{margin-top:16px;color:var(--acc2);font-size:14px;text-align:center}
+  .spin::after{content:'';animation:dots 1.4s infinite}
+  @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+  a.dl{display:inline-block;margin-top:16px;padding:13px 28px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:12px;text-decoration:none;font-weight:700}
+  .chars{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+  .chars div{border:1px solid var(--line);border-radius:12px;padding:8px 14px;font-size:13px;cursor:pointer;transition:.2s;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chars div:hover{border-color:var(--acc2)}
+  .chars div.sel{border-color:var(--acc);background:#241019}
+  .togg{display:flex;align-items:center;gap:10px;margin-top:18px;background:#0d0d14;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+  .togg input{width:auto}
+  .togg span{font-size:14px} .togg small{color:var(--mut);font-size:12px;display:block}
+  .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
+  .back:hover{color:var(--txt)}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+</style>
+</head>
+<body>
+<div class="logo">NOVA<b>Studio</b><i>.</i></div>
+<div class="sub">Tu modelo IA → prompt → video para TikTok</div>
+
+<div class="steps">
+  <div class="st on" id="s1"><div class="dot">1</div><div class="lb">MODELO</div></div>
+  <div class="ln"></div>
+  <div class="st" id="s2"><div class="dot">2</div><div class="lb">PROMPT</div></div>
+  <div class="ln"></div>
+  <div class="st" id="s3"><div class="dot">3</div><div class="lb">VIDEO</div></div>
+</div>
+
+<div class="card" id="step1">
+  <h2>Crea o elige tu modelo</h2>
+  <div class="hint">Describe su look — queda guardado para reusarlo en más videos</div>
+  <div id="savedWrap" style="display:none">
+    <label>Guardados</label>
+    <div class="chars" id="saved"></div>
+  </div>
+  <label>Descripción del modelo</label>
+  <textarea id="cdesc" placeholder="Ej: chica chilena ~21, pelo oscuro ondulado desordenado, piel con marcas de acné, lunar junto al labio, hoodie gris gastado"></textarea>
+  <button class="btn" onclick="genChar(this)">✦ Generar modelo</button>
+  <div class="spin" id="cspin"></div>
+  <div class="preview" id="cprev"></div>
+  <button class="btn ghost" id="cnext" style="display:none" onclick="go(2)">Usar este modelo →</button>
+</div>
+
+<div class="card" id="step2" style="display:none">
+  <h2>De qué trata el video</h2>
+  <div class="hint">Describe la escena y la acción — la app arma la imagen y la anima</div>
+  <label>Escena / acción</label>
+  <textarea id="prompt" placeholder="Ej: celebra que le subieron el elo, mira la cámara y sonríe"></textarea>
+  <label>Lo que dice (opcional)</label>
+  <input id="dialog" placeholder="Ej: por fin gané una ranked, wenaaa">
+  <div class="row">
+    <div>
+      <label>Voz</label>
+      <select id="voice"><option value="female">Mujer (chilena)</option><option value="male">Hombre (chileno)</option></select>
+    </div>
+  </div>
+  <div class="togg" onclick="var c=document.getElementById('anim');c.checked=!c.checked">
+    <input type="checkbox" id="anim" checked>
+    <span>Animación real (Vidu)<small>img→video con movimiento · usa créditos; off → solo movimiento de cámara</small></span>
+  </div>
+  <button class="btn" onclick="genVid(this)">▶ Generar video</button>
+  <button class="back" onclick="go(1)">← volver al modelo</button>
+</div>
+
+<div class="card" id="step3" style="display:none">
+  <h2>Tu video</h2>
+  <div class="hint" id="vstat"></div>
+  <div class="spin" id="vspin" style="display:none">Generando — puede tardar 1-5 min</div>
+  <div class="preview" id="vprev"></div>
+  <button class="back" onclick="go(2)">← nuevo prompt</button>
+</div>
+
+<script>
+let charDesc='', seed=null;
+const savedEl=document.getElementById('saved');
+function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.chars||'[]');
+  document.getElementById('savedWrap').style.display=cs.length?'block':'none';
+  cs.forEach((c)=>{ const d=document.createElement('div'); d.textContent=c.name;
+    d.onclick=()=>{ charDesc=c.desc; seed=c.seed; [...savedEl.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel');
+      document.getElementById('cprev').innerHTML='<img src="'+c.url+'">'; document.getElementById('cnext').style.display='block'; };
+    savedEl.appendChild(d); }); }
+loadSaved();
+function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
+  const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
+async function genChar(b){
+  charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe al modelo');
+  b.disabled=true; document.getElementById('cspin').textContent='Creando la cara';
+  try{ const r=await (await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed})})).json();
+    seed=r.seed; document.getElementById('cprev').innerHTML='<img src="'+r.image_url+'">';
+    const chars=JSON.parse(localStorage.chars||'[]'); chars.push({name:charDesc.slice(0,22),desc:charDesc,seed,url:r.image_url});
+    localStorage.chars=JSON.stringify(chars.slice(-8)); loadSaved();
+    document.getElementById('cnext').style.display='block'; document.getElementById('cspin').textContent='';
+  }catch(e){ document.getElementById('cspin').textContent='Error — reintenta'; }
+  b.disabled=false;
+}
+async function genVid(b){
+  const p=document.getElementById('prompt').value.trim(); if(!p) return alert('Falta el prompt');
+  go(3); document.getElementById('vprev').innerHTML=''; document.getElementById('vspin').style.display='block';
+  document.getElementById('vstat').textContent='';
+  try{
+    const r=await (await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      char_prompt:charDesc, seed, scene_prompt:p, dialogue:document.getElementById('dialog').value,
+      voice:document.getElementById('voice').value, animate:document.getElementById('anim').checked})})).json();
+    document.getElementById('vspin').style.display='none';
+    if(r.fallback) document.getElementById('vstat').textContent='Vidu sin créditos — salió en modo cámara';
+    else document.getElementById('vstat').textContent='Listo';
+    document.getElementById('vprev').innerHTML='<video src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar mp4</a>';
+  }catch(e){ document.getElementById('vspin').textContent='Error generando — reintenta'; }
+}
+</script>
+</body>
+</html>
