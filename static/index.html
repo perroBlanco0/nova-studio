@@ -47,6 +47,16 @@
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
+  /* responsive */
+  @media(max-width:640px){
+    body{padding:20px 12px 40px}
+    .logo{font-size:24px}
+    .st{width:72px}.st .lb{font-size:9px}
+    .ln{width:26px}
+    .card{padding:20px 16px;border-radius:16px}
+    .preview img,.preview video{max-width:100%;max-height:60vh}
+    .row{flex-direction:column;gap:0}
+  }
 </style>
 </head>
 <body>
