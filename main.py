@@ -238,6 +238,27 @@ def _animate_vidu(img: Path, scene_prompt: str, out: Path):
 
 
 KAGGLE_URL = os.environ.get("KAGGLE_VIDEO_URL", "").rstrip("/")
+_KAGGLE_FILE = Path("/tmp/kaggle_url.txt")
+if not KAGGLE_URL and _KAGGLE_FILE.exists():
+    KAGGLE_URL = _KAGGLE_FILE.read_text().strip()
+
+
+@app.post("/api/kaggle/register")
+async def kaggle_register(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    url = str(body.get("url", "")).rstrip("/")
+    if not url.startswith("https://"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"ok": False, "error": {"code": 400, "message": "url inválida"}},
+            status_code=400)
+    global KAGGLE_URL
+    KAGGLE_URL = url
+    _KAGGLE_FILE.write_text(url)
+    return {"ok": True}
 
 
 def _animate_kaggle(img: Path, scene_prompt: str, out: Path, seconds: float):
