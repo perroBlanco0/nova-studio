@@ -42,6 +42,8 @@ def _supa_req(method: str, path: str, data=None, ctype="application/octet-stream
     elif data is not None:
         hdr["Content-Type"] = "application/json"
         data = json.dumps(data).encode()
+    if method in ("POST", "PUT"):
+        hdr["x-upsert"] = "true"
     r = urllib.request.Request(url, data=data, headers=hdr, method=method)
     return urllib.request.urlopen(r, timeout=30)
 
@@ -60,17 +62,17 @@ def _manifest() -> list:
 
 def _save_manifest(items: list):
     try:
-        _supa_req("POST", "object/videos/manifest.json",
+        _supa_req("PUT", "object/videos/manifest.json",
                   json.dumps(items).encode(), "application/json")
-    except Exception:
-        pass
+    except Exception as e:
+        print("manifest save failed:", e, flush=True)
 
 
 def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
     if not SUPA_URL or not SUPA_KEY:
         return
     try:
-        _supa_req("POST", f"object/videos/{vid}.mp4", mp4.read_bytes(), "video/mp4")
+        _supa_req("PUT", f"object/videos/{vid}.mp4", mp4.read_bytes(), "video/mp4")
         items = _manifest()
         items = [i for i in items if i.get("video_id") != vid]
         items.append({"video_id": vid, "scene": scene_prompt[:140],
@@ -85,8 +87,8 @@ def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
                 pass
             total -= old.get("size", 0)
         _save_manifest(items)
-    except Exception:
-        pass
+    except Exception as e:
+        print("store_video failed:", e, flush=True)
 
 
 def _supa_has(vid: str) -> bool:
