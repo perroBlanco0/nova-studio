@@ -133,6 +133,31 @@ def _animate_vidu(img: Path, scene_prompt: str, out: Path):
     vidu_gen.generate_sync(img, scene_prompt, out)
 
 
+_MOTION_CACHE = {"ts": 0.0, "ok": False}
+
+
+def _motion_available() -> bool:
+    now = time.time()
+    if now - _MOTION_CACHE["ts"] < 60:
+        return _MOTION_CACHE["ok"]
+    import wan_gen
+    hdrs = {"User-Agent": "nova-studio"}
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        hdrs["Authorization"] = "Bearer " + token
+    ok = False
+    for path in ("/gradio_api/info", "/"):
+        try:
+            req = urllib.request.Request(wan_gen.BASE + path, headers=hdrs)
+            with urllib.request.urlopen(req, timeout=8) as r:
+                ok = r.status == 200
+            break
+        except Exception:
+            continue
+    _MOTION_CACHE.update(ts=now, ok=ok)
+    return ok
+
+
 # ============================================================
 # Platform: local — ffmpeg (fallback de video y mux de audio/subs)
 # ============================================================
@@ -356,6 +381,11 @@ async def video(req: VidReq):
     if anim_err:
         resp["fallback"] = anim_err[:400]
     return resp
+
+
+@app.get("/api/motion_status")
+async def motion_status():
+    return {"ok": True, "motion": await asyncio.to_thread(_motion_available)}
 
 
 @app.get("/api/options")

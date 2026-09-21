@@ -48,6 +48,7 @@
   .chars div{border:1px solid var(--line);border-radius:12px;padding:8px 14px;font-size:13px;cursor:pointer;transition:.2s;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chars div:hover{border-color:var(--acc2)}
   .chars div.sel{border-color:var(--acc);background:#241019}
+  .motion-pill{display:none;align-items:center;gap:6px;margin:-16px 0 20px;padding:7px 16px;border-radius:999px;background:linear-gradient(135deg,#065f46,#0e7490);border:1px solid #25f4ee55;color:#a7f3d0;font-size:12px;font-weight:600;letter-spacing:.3px;box-shadow:0 0 18px #25f4ee22;animation:fadein .5s ease}
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
@@ -67,6 +68,7 @@
 <body>
 <div class="logo">NOVA<b>Studio</b><i>.</i></div>
 <div class="sub">Crea tu personaje → describe tu video → descárgalo</div>
+<div class="motion-pill" id="motionPill">⚡ Animación con movimiento disponible</div>
 
 <div class="steps">
   <div class="st on" id="s1"><div class="dot">1</div><div class="lb">PERSONAJE</div></div>
@@ -158,6 +160,12 @@ function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.cha
       document.getElementById('cnext').style.display='block'; };
     savedEl.appendChild(d); }); }
 loadSaved();
+async function checkMotion(){
+  try{ const r=await (await fetch('/api/motion_status')).json();
+    document.getElementById('motionPill').style.display=r.motion?'flex':'none';
+  }catch(e){ document.getElementById('motionPill').style.display='none'; }
+}
+checkMotion(); setInterval(checkMotion,60000);
 function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
