@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>NOVA Studio — crea tu video</title>
 <style>
   :root{--bg:#08080d;--card:#111119;--line:#23232f;--acc:#fe2c55;--acc2:#25f4ee;--txt:#f2f2f5;--mut:#8a8a99}
@@ -52,30 +52,39 @@
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
-  .bnav{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;background:#0a0a10ee;border-top:1px solid var(--line);backdrop-filter:blur(12px)}
-  .bnav a{flex:1;padding:12px 0 10px;text-align:center;color:var(--mut);font-size:11px;font-weight:700;letter-spacing:.5px;text-decoration:none;cursor:pointer;transition:.2s}
+  .bnav{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;background:#0a0a10ee;border-top:1px solid var(--line);backdrop-filter:blur(12px);padding-bottom:env(safe-area-inset-bottom)}
+  .bnav a{flex:1;padding:14px 0 12px;text-align:center;color:var(--mut);font-size:11px;font-weight:700;letter-spacing:.5px;text-decoration:none;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent;user-select:none}
   .bnav a .ic{display:block;font-size:19px;margin-bottom:2px}
   .bnav a.on{color:#fff}
   .bnav a.on .ic{color:var(--acc2)}
-  .feedwrap{display:none;position:fixed;inset:0;z-index:40;background:#000;padding:0 0 62px}
-  .feed{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory;background:#000}
+  .feedwrap{display:none;position:fixed;inset:0;z-index:40;background:#000;padding:0 0 calc(58px + env(safe-area-inset-bottom));overscroll-behavior:contain}
+  .feed{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory;background:#000;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   .feed::-webkit-scrollbar{display:none}
-  .fcard{position:relative;height:100%;scroll-snap-align:start;display:flex;align-items:center;justify-content:center;background:#000}
+  .fcard{position:relative;height:100%;scroll-snap-align:start;scroll-snap-stop:always;display:flex;align-items:center;justify-content:center;background:#000}
   .fcard video{height:100%;width:100%;object-fit:cover}
-  .fover{position:absolute;left:0;right:0;bottom:0;padding:18px 16px 24px;background:linear-gradient(transparent,#000c 75%);pointer-events:none}
+  .fover{position:absolute;left:0;right:0;bottom:0;padding:18px 16px 28px;background:linear-gradient(transparent,#000c 75%);pointer-events:none}
   .fover .scene{font-size:15px;line-height:1.4;margin-bottom:12px;text-shadow:0 1px 4px #000}
   .fover .dl2{pointer-events:auto;display:inline-block;padding:11px 22px;background:linear-gradient(135deg,var(--acc),#c81e5b);color:#fff;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px;border:1px solid #ffffff22}
   .fempty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--mut);font-size:15px}
   .ftitle{position:absolute;top:0;left:0;right:0;z-index:41;padding:16px;text-align:center;font-weight:800;font-size:16px;text-shadow:0 1px 6px #000;pointer-events:none}
   @media(max-width:640px){
-    body{padding:20px 12px 40px}
-    .logo{font-size:24px}
-    .st{width:72px}.st .lb{font-size:9px}
-    .ln{width:26px}
-    .card{padding:20px 16px;border-radius:16px}
+    body{padding:16px 10px 96px}
+    .logo{font-size:22px}
+    .sub{font-size:12px;margin:4px 0 18px}
+    .steps{margin-bottom:20px}
+    .st{width:64px}.st .lb{font-size:8px}.st .dot{width:28px;height:28px;font-size:12px}
+    .ln{width:20px}
+    .card{padding:18px 14px;border-radius:16px;box-shadow:none}
+    .card h2{font-size:17px}
+    input,textarea,select{font-size:16px;padding:13px 14px}
+    .btn{padding:15px;font-size:16px}
     .sheet{grid-template-columns:repeat(2,1fr)}
-    .preview video{max-width:100%;max-height:60vh}
+    .preview video{max-width:100%;max-height:62vh}
     .row{flex-direction:column;gap:0}
+    .motion-pill{margin:-10px 0 14px}
+    .fover .dl2{padding:13px 26px;font-size:14px}
+    .ftitle{padding:12px;font-size:15px}
+    html,body{overscroll-behavior:none}
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -190,6 +199,7 @@ let feedIO=null;
 function navGo(n){
   ['nv1','nv2','nv3'].forEach((id,i)=>document.getElementById(id).classList.toggle('on',i+1===n));
   document.getElementById('feedwrap').style.display=n===3?'block':'none';
+  if(n!==3) document.querySelectorAll('#feed video').forEach(v=>v.pause());
   if(n===2) go(2);
   if(n===3) loadFeed(true);
 }
