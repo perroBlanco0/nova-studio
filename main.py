@@ -61,7 +61,7 @@ def _scene_image_prompt(char_prompt: str, scene_prompt: str) -> str:
         + scene_prompt + ", natural skin, imperfect, indoor light")
 
 
-def _dl(url: str, out: Path, retries: int = 4):
+def _dl(url: str, out: Path, retries: int = 6):
     last = None
     for i in range(retries):
         try:
@@ -71,7 +71,7 @@ def _dl(url: str, out: Path, retries: int = 4):
             return
         except Exception as e:
             last = e
-            time.sleep(min(4 * (i + 1), 15))
+            time.sleep(min(10 * (i + 1), 30))
     raise last
 
 
