@@ -27,6 +27,19 @@ UPLOADS.mkdir(exist_ok=True)
 # ============================================================
 
 POLL = "https://image.pollinations.ai/prompt/{p}?width=720&height=1280&nologo=true&seed={s}"
+POLL_TOKEN = os.environ.get("POLL_TOKEN", "")
+
+
+def _poll_url(prompt: str, seed: int, token: bool = True) -> str:
+    u = POLL.format(p=prompt, s=seed)
+    return u + ("&token=" + POLL_TOKEN if token and POLL_TOKEN else "")
+
+
+def _dl_poll(prompt: str, seed: int, out: Path):
+    try:
+        _dl(_poll_url(prompt, seed), out)
+    except Exception:
+        _dl(_poll_url(prompt, seed, token=False), out)
 
 
 def _char_image_prompt(description: str) -> str:
@@ -217,10 +230,23 @@ def character(req: CharReq):
         raise HTTPException(400, "description is required")
     seed = req.seed if req.seed is not None else int.from_bytes(os.urandom(2), "big")
     wanted = [v for v in req.views if v in VIEW_PROMPTS] or ["front"]
-    views = {v: POLL.format(p=_char_view_prompt(req.description, v), s=seed)
+    views = {v: f"/api/img?v={v}&p={urllib.parse.quote(_char_view_prompt(req.description, v))}&s={seed}"
              for v in wanted}
     return {"ok": True, "image_url": views[wanted[0]], "views": views,
             "seed": seed}
+
+
+@app.get("/api/img")  # proxy a Pollinations (oculta el token)
+def img_proxy(p: str, s: int, v: str = "front"):
+    if not (0 < s <= 2**31) or len(p) > 2000:
+        raise HTTPException(400, "bad params")
+    out = WORK / "imgcache" / f"{uuid.uuid4().hex[:10]}.png"
+    out.parent.mkdir(exist_ok=True)
+    try:
+        _dl_poll(p, s, out)
+    except Exception as e:
+        raise HTTPException(502, f"image gen failed: {e}")
+    return FileResponse(out)
 
 
 @app.post("/api/upload")
@@ -287,8 +313,8 @@ async def video(req: VidReq):
     else:
         try:
             await asyncio.to_thread(
-                _dl, POLL.format(p=_scene_image_prompt(req.char_prompt, req.scene_prompt),
-                                 s=req.seed), img)
+                _dl_poll, _scene_image_prompt(req.char_prompt, req.scene_prompt),
+                req.seed, img)
         except Exception as e:
             raise HTTPException(502, f"image gen failed: {e}")
 
