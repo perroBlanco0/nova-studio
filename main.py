@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 import edge_tts
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ app = FastAPI()
 
 WORK = Path("/tmp/novavids")
 WORK.mkdir(exist_ok=True)
+UPLOADS = WORK / "uploads"
+UPLOADS.mkdir(exist_ok=True)
 
 
 # ============================================================
@@ -176,6 +178,7 @@ class VidReq(BaseModel):
     char_prompt: str
     seed: int
     scene_prompt: str
+    image_id: str = ""             # /api/upload id — skips scene gen
     dialogue: str = ""
     voice: str = "female"          # female | male | none
     duration_s: float = 3.5        # 2.0 - 8.0
@@ -211,10 +214,38 @@ def character(req: CharReq):
             "seed": seed}
 
 
+@app.post("/api/upload")
+async def upload(request: Request):
+    form = await request.form()
+    f = form.get("file")
+    if not f or not getattr(f, "filename", None):
+        raise HTTPException(400, "file is required")
+    data = await f.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(413, "max 15MB")
+    if not (f.content_type or "").startswith("image/"):
+        raise HTTPException(400, "must be an image")
+    uid = uuid.uuid4().hex[:10]
+    ext = Path(f.filename).suffix or ".png"
+    (UPLOADS / f"{uid}{ext}").write_bytes(data)
+    return {"ok": True, "image_id": uid, "url": f"/api/upload/{uid}"}
+
+
+@app.get("/api/upload/{uid}")
+def get_upload(uid: str):
+    if not re.fullmatch(r"[0-9a-f]{10}", uid):
+        raise HTTPException(404)
+    for f in UPLOADS.glob(uid + ".*"):
+        return FileResponse(f)
+    raise HTTPException(404)
+
+
 @app.post("/api/video")  # Pollinations → Edge-TTS → Wan 2.2/Vidu/ffmpeg
 async def video(req: VidReq):
-    if not req.char_prompt.strip() or not req.scene_prompt.strip():
-        raise HTTPException(400, "char_prompt and scene_prompt are required")
+    if not req.scene_prompt.strip():
+        raise HTTPException(400, "scene_prompt is required")
+    if not req.image_id and not req.char_prompt.strip():
+        raise HTTPException(400, "char_prompt or image_id is required")
     if req.engine not in ("auto", "wan", "static"):
         raise HTTPException(400, "engine must be auto|wan|static")
     if req.voice not in ("female", "male", "none"):
@@ -227,12 +258,18 @@ async def video(req: VidReq):
     d = WORK / vid
     d.mkdir()
     img = d / "scene.png"
-    try:
-        await asyncio.to_thread(
-            _dl, POLL.format(p=_scene_image_prompt(req.char_prompt, req.scene_prompt),
-                             s=req.seed), img)
-    except Exception as e:
-        raise HTTPException(502, f"image gen failed: {e}")
+    if req.image_id:
+        srcs = list(UPLOADS.glob(req.image_id + ".*"))
+        if not srcs:
+            raise HTTPException(404, "image_id not found")
+        img = srcs[0]
+    else:
+        try:
+            await asyncio.to_thread(
+                _dl, POLL.format(p=_scene_image_prompt(req.char_prompt, req.scene_prompt),
+                                 s=req.seed), img)
+        except Exception as e:
+            raise HTTPException(502, f"image gen failed: {e}")
 
     audio = srt = None
     if req.dialogue.strip() and req.voice != "none":
