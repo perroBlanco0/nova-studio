@@ -255,6 +255,13 @@ async def kaggle_register(request: Request):
         return JSONResponse(
             {"ok": False, "error": {"code": 400, "message": "url inválida"}},
             status_code=400)
+    try:
+        urllib.request.urlopen(url + "/health", timeout=8)
+    except Exception:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"ok": False, "error": {"code": 400, "message": "url no responde"}},
+            status_code=400)
     global KAGGLE_URL
     KAGGLE_URL = url
     _KAGGLE_FILE.write_text(url)
