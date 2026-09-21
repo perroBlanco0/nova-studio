@@ -23,6 +23,66 @@ UPLOADS.mkdir(exist_ok=True)
 
 
 # ============================================================
+# Persistencia: MongoDB + GridFS (opcional, via MONGO_URI)
+# ============================================================
+
+GRIDFS_LIMIT = 400 * 1024 * 1024
+_fs = None
+_vids = None
+try:
+    if os.environ.get("MONGO_URI"):
+        import gridfs
+        from pymongo import MongoClient
+        _mc = MongoClient(os.environ["MONGO_URI"], serverSelectionTimeoutMS=5000)
+        _db = _mc.get_default_database()
+        _fs = gridfs.GridFS(_db)
+        _vids = _db["videos"]
+except Exception:
+    _fs = _vids = None
+
+
+def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
+    if _fs is None or _vids is None:
+        return
+    try:
+        fid = _fs.put(mp4.read_bytes(), filename=f"{vid}/final.mp4",
+                      contentType="video/mp4")
+        _vids.insert_one({"video_id": vid, "file_id": fid,
+                          "char_prompt": char_prompt,
+                          "scene_prompt": scene_prompt,
+                          "created_at": time.time()})
+        while _total_gridfs_bytes() > GRIDFS_LIMIT:
+            d = _db["fs.files"].find_one({}, sort=[("uploadDate", 1)])
+            if not d:
+                break
+            _fs.delete(d["_id"])
+            _vids.delete_one({"file_id": d["_id"]})
+    except Exception:
+        pass
+
+
+def _total_gridfs_bytes() -> int:
+    try:
+        agg = _db["fs.files"].aggregate(
+            [{"$group": {"_id": None, "t": {"$sum": "$length"}}}])
+        return next(agg)["t"]
+    except Exception:
+        return 0
+
+
+def _gridfs_video(vid: str):
+    if _vids is None or _fs is None:
+        return None
+    try:
+        doc = _vids.find_one({"video_id": vid})
+        if doc:
+            return _fs.get(doc["file_id"]).read()
+    except Exception:
+        pass
+    return None
+
+
+# ============================================================
 # Platform: Pollinations.ai — imagen de personaje y escena
 # ============================================================
 
@@ -324,6 +384,8 @@ async def video(req: VidReq):
             await asyncio.to_thread(_render, img, audio, srt, out, dur)
         except subprocess.CalledProcessError as e:
             raise HTTPException(500, "ffmpeg failed: " + e.stderr.decode()[-300:])
+    await asyncio.to_thread(_store_video, vid, req.char_prompt,
+                            req.scene_prompt, out)
     resp = {"ok": True, "video_id": vid,
             "download": f"/api/video/{vid}/final.mp4",
             "preview": f"/api/video/{vid}/preview.png"}
@@ -344,10 +406,30 @@ def options():
             "durations": [3.5, 5.0, 8.0]}
 
 
+@app.get("/api/feed")
+def feed():
+    items = []
+    if _vids is not None:
+        try:
+            for doc in _vids.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
+                items.append({
+                    "video_id": doc["video_id"],
+                    "url": f"/api/video/{doc['video_id']}/final.mp4",
+                    "scene": doc.get("scene_prompt", ""),
+                    "created_at": doc.get("created_at", 0)})
+        except Exception:
+            items = []
+    return {"ok": True, "videos": items}
+
+
 @app.get("/api/video/{vid}/final.mp4")
 def get_video(vid: str):
     if not re.fullmatch(r"[0-9a-f]{10}", vid):
         raise HTTPException(404)
+    data = _gridfs_video(vid)
+    if data is not None:
+        from fastapi.responses import Response
+        return Response(data, media_type="video/mp4")
     f = WORK / vid / "final.mp4"
     if not f.exists():
         raise HTTPException(404)

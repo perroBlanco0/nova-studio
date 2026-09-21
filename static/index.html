@@ -51,6 +51,17 @@
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
+  .feedwrap{width:100%;max-width:480px;margin-top:48px}
+  .feedwrap h2{font-size:19px;margin-bottom:4px;text-align:center}
+  .feedwrap .hint{color:var(--mut);font-size:13px;text-align:center;margin-bottom:16px}
+  .feed{height:80vh;overflow-y:scroll;scroll-snap-type:y mandatory;border-radius:20px;border:1px solid var(--line);background:#000}
+  .feed::-webkit-scrollbar{display:none}
+  .fcard{position:relative;height:100%;scroll-snap-align:start;display:flex;align-items:center;justify-content:center;background:#000}
+  .fcard video{height:100%;width:100%;object-fit:cover}
+  .fover{position:absolute;left:0;right:0;bottom:0;padding:18px 16px 20px;background:linear-gradient(transparent,#000c 70%);pointer-events:none}
+  .fover .scene{font-size:14px;line-height:1.4;margin-bottom:10px;text-shadow:0 1px 4px #000}
+  .fover .dl2{pointer-events:auto;display:inline-block;padding:10px 20px;background:linear-gradient(135deg,var(--acc),#c81e5b);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:13px;border:1px solid #ffffff22}
+  .fempty{padding:40px 20px;text-align:center;color:var(--mut);font-size:14px}
   @media(max-width:640px){
     body{padding:20px 12px 40px}
     .logo{font-size:24px}
@@ -133,6 +144,12 @@
   <button class="back" onclick="go(2)">← hacer otro video</button>
 </div>
 
+<div class="feedwrap" id="feedwrap" style="display:none">
+  <h2>Mis videos</h2>
+  <div class="hint">Desliza para ver tus videos</div>
+  <div class="feed" id="feed"></div>
+</div>
+
 <script>
 let charDesc='', seed=null, imageId='';
 const savedEl=document.getElementById('saved');
@@ -158,6 +175,23 @@ function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.cha
       document.getElementById('cnext').style.display='block'; };
     savedEl.appendChild(d); }); }
 loadSaved();
+let feedIO=null;
+async function loadFeed(){
+  const wrap=document.getElementById('feedwrap'), feed=document.getElementById('feed');
+  try{ const res=await fetch('/api/feed'); const r=await res.json();
+    const vids=(r.ok&&r.videos)||[];
+    if(!vids.length) return;
+    wrap.style.display='block';
+    feed.innerHTML=vids.map(v=>'<div class="fcard"><video src="'+v.url+'" muted loop playsinline preload="metadata"></video>'
+      +'<div class="fover"><div class="scene"></div><a class="dl2" href="'+v.url+'" download="nova-video.mp4">⬇ Descargar</a></div></div>').join('');
+    feed.querySelectorAll('.fcard').forEach((c,i)=>{ c.querySelector('.scene').textContent=vids[i].scene||''; });
+    if(feedIO) feedIO.disconnect();
+    feedIO=new IntersectionObserver(es=>{ es.forEach(e=>{ const v=e.target.querySelector('video');
+      if(e.isIntersecting){ v.play().catch(()=>{}); } else { v.pause(); } }); },{root:feed,threshold:.6});
+    feed.querySelectorAll('.fcard').forEach(c=>feedIO.observe(c));
+  }catch(e){}
+}
+loadFeed();
 function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
@@ -235,6 +269,7 @@ async function genVid(b){
     spin.style.display='none';
     document.getElementById('vstat').textContent=r.fallback?'Salió con movimiento de cámara':'';
     document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar video</a>';
+    loadFeed();
   }catch(e){ clearInterval(tick); spin.textContent='No se pudo crear — intenta de nuevo'; }
   b.disabled=false; b.textContent='▶ Crear video';
 }
