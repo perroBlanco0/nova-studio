@@ -238,9 +238,39 @@ def _animate_vidu(img: Path, scene_prompt: str, out: Path):
 
 
 KAGGLE_URL = os.environ.get("KAGGLE_VIDEO_URL", "").rstrip("/")
+KAGGLE_SECRET = os.environ.get("KAGGLE_SECRET", "")
 _KAGGLE_FILE = Path("/tmp/kaggle_url.txt")
 if not KAGGLE_URL and _KAGGLE_FILE.exists():
     KAGGLE_URL = _KAGGLE_FILE.read_text().strip()
+
+
+def _kaggle_url_load():
+    """Recupera la última URL registrada desde Supabase (sobrevive a reinicios
+    de Render, a diferencia de /tmp que se borra en cada deploy/cold start)."""
+    global KAGGLE_URL
+    if KAGGLE_URL or not SUPA_URL or not SUPA_KEY:
+        return
+    try:
+        with _supa_req("GET", "object/videos/_kaggle_url.txt") as r:
+            url = r.read().decode().strip()
+        if url:
+            KAGGLE_URL = url
+            _KAGGLE_FILE.write_text(url)
+    except Exception as e:
+        print("kaggle_url_load failed:", e, flush=True)
+
+
+def _kaggle_url_save(url: str):
+    _KAGGLE_FILE.write_text(url)
+    if SUPA_URL and SUPA_KEY:
+        try:
+            _supa_req("PUT", "object/videos/_kaggle_url.txt", url.encode(),
+                      "text/plain")
+        except Exception as e:
+            print("kaggle_url_save failed:", e, flush=True)
+
+
+_kaggle_url_load()
 
 
 @app.get("/api/kaggle/register")
@@ -254,6 +284,11 @@ async def kaggle_register(request: Request):
         body = await request.json()
     except Exception:
         body = {}
+    if KAGGLE_SECRET and body.get("secret") != KAGGLE_SECRET:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"ok": False, "error": {"code": 401, "message": "unauthorized"}},
+            status_code=401)
     url = str(body.get("url", "")).rstrip("/")
     if not url.startswith("https://"):
         from fastapi.responses import JSONResponse
@@ -269,7 +304,7 @@ async def kaggle_register(request: Request):
             status_code=400)
     global KAGGLE_URL
     KAGGLE_URL = url
-    _KAGGLE_FILE.write_text(url)
+    _kaggle_url_save(url)
     return {"ok": True}
 
 
@@ -539,21 +574,21 @@ def _vreq_log(vid, req, status, err, t0):
         print("vreq_log failed:", e, flush=True)
 
 
+# job_id -> {"status": "processing"|"ok"|"error", ...}. Un solo worker/instancia
+# (ver Procfile), así que un dict en memoria basta; se limpia solo (ver _job_gc).
+JOBS: dict[str, dict] = {}
+JOB_TTL = 3600
+
+
+def _job_gc():
+    now = time.time()
+    dead = [k for k, v in JOBS.items() if now - v.get("ts", now) > JOB_TTL]
+    for k in dead:
+        JOBS.pop(k, None)
+
+
 @app.post("/api/video")  # Pollinations → Edge-TTS → Wan 2.2/Vidu/ffmpeg
 async def video(req: VidReq):
-    t0 = time.time()
-    vid = uuid.uuid4().hex[:10]
-    try:
-        return await _video_inner(req, vid, t0)
-    except HTTPException as e:
-        _vreq_log(vid, req, f"error_{e.status_code}", str(e.detail), t0)
-        raise
-    except Exception as e:
-        _vreq_log(vid, req, "error_500", str(e), t0)
-        raise HTTPException(500, str(e)[:300])
-
-
-async def _video_inner(req: VidReq, vid: str, t0: float):
     if not req.scene_prompt.strip():
         raise HTTPException(400, "scene_prompt is required")
     if not req.image_id and not req.char_prompt.strip():
@@ -562,6 +597,40 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         raise HTTPException(400, "engine must be auto|wan|static")
     if req.voice not in ("female", "male", "none"):
         raise HTTPException(400, "voice must be female|male|none")
+    if req.image_id and not list(UPLOADS.glob(req.image_id + ".*")):
+        raise HTTPException(404, "image_id not found")
+
+    _job_gc()
+    t0 = time.time()
+    vid = uuid.uuid4().hex[:10]
+    JOBS[vid] = {"status": "processing", "ts": t0}
+    asyncio.create_task(_run_job(req, vid, t0))
+    return {"ok": True, "video_id": vid, "status": "processing"}
+
+
+@app.get("/api/video/{vid}/status")
+async def video_status(vid: str):
+    job = JOBS.get(vid)
+    if not job:
+        raise HTTPException(404, "job not found")
+    return {"ok": job["status"] != "error", **job}
+
+
+async def _run_job(req: VidReq, vid: str, t0: float):
+    try:
+        resp = await _video_inner(req, vid, t0)
+        JOBS[vid] = {"status": "ok", "ts": time.time(), **resp}
+    except HTTPException as e:
+        _vreq_log(vid, req, f"error_{e.status_code}", str(e.detail), t0)
+        JOBS[vid] = {"status": "error", "ts": time.time(),
+                     "error": {"code": e.status_code, "message": e.detail}}
+    except Exception as e:
+        _vreq_log(vid, req, "error_500", str(e), t0)
+        JOBS[vid] = {"status": "error", "ts": time.time(),
+                     "error": {"code": 500, "message": str(e)[:300]}}
+
+
+async def _video_inner(req: VidReq, vid: str, t0: float):
     if not req.seed or req.seed <= 0 or req.seed > 2**31:
         req.seed = random.randint(1, 2**31 - 1)
     dur_anim = min(max(req.duration_s, 2.0), 8.0)
