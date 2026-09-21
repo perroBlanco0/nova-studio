@@ -284,7 +284,7 @@ async function genVid(b){
   const tick=setInterval(()=>{ si=Math.min(si+1,stages.length-1); spin.textContent=stages[si]; },25000);
   try{
     const res=await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      char_prompt:charDesc, seed, image_id:imageId, scene_prompt:p, dialogue:document.getElementById('dialog').value,
+      char_prompt:charDesc, seed:seed||0, image_id:imageId, scene_prompt:p, dialogue:document.getElementById('dialog').value,
       voice:document.getElementById('voice').value,
       duration_s:parseFloat(document.getElementById('dur').value),
       engine:document.getElementById('engine').value,

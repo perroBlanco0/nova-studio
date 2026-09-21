@@ -9,8 +9,10 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import random
 import edge_tts
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -334,9 +336,9 @@ class CharReq(BaseModel):
 
 
 class VidReq(BaseModel):
-    char_prompt: str
-    seed: int
-    scene_prompt: str
+    char_prompt: str = ""
+    seed: int | None = None        # None/0 -> auto random
+    scene_prompt: str = ""
     image_id: str = ""             # /api/upload id — skips scene gen
     dialogue: str = ""
     voice: str = "female"          # female | male | none
@@ -351,6 +353,15 @@ async def http_exc(request, exc: HTTPException):
     return JSONResponse({"ok": False, "error": {"code": exc.status_code,
                                                 "message": exc.detail}},
                         status_code=exc.status_code)
+
+
+@app.exception_handler(RequestValidationError)
+async def val_exc(request, exc):
+    from fastapi.responses import JSONResponse
+    print("422 on", request.url.path, exc.errors()[:3], flush=True)
+    return JSONResponse({"ok": False, "error": {"code": 422,
+                                                "message": "datos inválidos"}},
+                        status_code=422)
 
 
 @app.exception_handler(Exception)
@@ -463,8 +474,8 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         raise HTTPException(400, "engine must be auto|wan|static")
     if req.voice not in ("female", "male", "none"):
         raise HTTPException(400, "voice must be female|male|none")
-    if not (0 < req.seed <= 2**31):
-        raise HTTPException(400, "seed must be a positive integer")
+    if not req.seed or req.seed <= 0 or req.seed > 2**31:
+        req.seed = random.randint(1, 2**31 - 1)
     dur_anim = min(max(req.duration_s, 2.0), 8.0)
 
     d = WORK / vid
