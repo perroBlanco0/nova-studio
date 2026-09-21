@@ -316,7 +316,21 @@ _MOTION_CACHE = {"ts": 0.0, "ok": False, "dead_until": 0.0}
 def _motion_available() -> bool:
     now = time.time()
     if now < _MOTION_CACHE["dead_until"]:
+        # Wan HF sin cuota por ahora — pero si Kaggle responde, igual hay animación
+        if KAGGLE_URL:
+            try:
+                urllib.request.urlopen(KAGGLE_URL + "/health", timeout=8)
+                return True
+            except Exception:
+                pass
         return False
+    if KAGGLE_URL:
+        try:
+            urllib.request.urlopen(KAGGLE_URL + "/health", timeout=8)
+            _MOTION_CACHE.update(ts=now, ok=True)
+            return True
+        except Exception:
+            pass
     if now - _MOTION_CACHE["ts"] < 60:
         return _MOTION_CACHE["ok"]
     import wan_gen
