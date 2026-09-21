@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -23,63 +24,79 @@ UPLOADS.mkdir(exist_ok=True)
 
 
 # ============================================================
-# Persistencia: MongoDB + GridFS (opcional, via MONGO_URI)
+# Persistencia: Supabase Storage (opcional, via SUPA_URL + SUPA_KEY)
 # ============================================================
 
-GRIDFS_LIMIT = 400 * 1024 * 1024
-_fs = None
-_vids = None
-try:
-    if os.environ.get("MONGO_URI"):
-        import gridfs
-        from pymongo import MongoClient
-        _mc = MongoClient(os.environ["MONGO_URI"], serverSelectionTimeoutMS=5000)
-        _db = _mc.get_default_database()
-        _fs = gridfs.GridFS(_db)
-        _vids = _db["videos"]
-except Exception:
-    _fs = _vids = None
+SUPA_URL = os.environ.get("SUPA_URL", "").rstrip("/")
+SUPA_KEY = os.environ.get("SUPA_KEY", "")
+SUPA_LIMIT = 800 * 1024 * 1024
+
+
+def _supa_req(method: str, path: str, data=None, ctype="application/octet-stream"):
+    if not SUPA_URL or not SUPA_KEY:
+        raise RuntimeError("supabase not configured")
+    url = SUPA_URL + "/storage/v1/" + path
+    hdr = {"Authorization": "Bearer " + SUPA_KEY, "apikey": SUPA_KEY}
+    if isinstance(data, (bytes, bytearray)):
+        hdr["Content-Type"] = ctype
+    elif data is not None:
+        hdr["Content-Type"] = "application/json"
+        data = json.dumps(data).encode()
+    r = urllib.request.Request(url, data=data, headers=hdr, method=method)
+    return urllib.request.urlopen(r, timeout=30)
+
+
+def _supa_public(vid: str) -> str:
+    return f"{SUPA_URL}/storage/v1/object/public/videos/{vid}.mp4"
+
+
+def _manifest() -> list:
+    try:
+        with _supa_req("GET", "object/public/videos/manifest.json") as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+
+def _save_manifest(items: list):
+    try:
+        _supa_req("POST", "object/videos/manifest.json",
+                  json.dumps(items).encode(), "application/json")
+    except Exception:
+        pass
 
 
 def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
-    if _fs is None or _vids is None:
+    if not SUPA_URL or not SUPA_KEY:
         return
     try:
-        fid = _fs.put(mp4.read_bytes(), filename=f"{vid}/final.mp4",
-                      contentType="video/mp4")
-        _vids.insert_one({"video_id": vid, "file_id": fid,
-                          "char_prompt": char_prompt,
-                          "scene_prompt": scene_prompt,
-                          "created_at": time.time()})
-        while _total_gridfs_bytes() > GRIDFS_LIMIT:
-            d = _db["fs.files"].find_one({}, sort=[("uploadDate", 1)])
-            if not d:
-                break
-            _fs.delete(d["_id"])
-            _vids.delete_one({"file_id": d["_id"]})
+        _supa_req("POST", f"object/videos/{vid}.mp4", mp4.read_bytes(), "video/mp4")
+        items = _manifest()
+        items = [i for i in items if i.get("video_id") != vid]
+        items.append({"video_id": vid, "scene": scene_prompt[:140],
+                      "char": char_prompt[:140], "created_at": time.time(),
+                      "size": mp4.stat().st_size})
+        total = sum(i.get("size", 0) for i in items)
+        while total > SUPA_LIMIT and items:
+            old = items.pop(0)
+            try:
+                _supa_req("DELETE", f"object/videos/{old['video_id']}.mp4")
+            except Exception:
+                pass
+            total -= old.get("size", 0)
+        _save_manifest(items)
     except Exception:
         pass
 
 
-def _total_gridfs_bytes() -> int:
+def _supa_has(vid: str) -> bool:
+    if not SUPA_URL or not SUPA_KEY:
+        return False
     try:
-        agg = _db["fs.files"].aggregate(
-            [{"$group": {"_id": None, "t": {"$sum": "$length"}}}])
-        return next(agg)["t"]
+        r = urllib.request.Request(_supa_public(vid), method="HEAD")
+        return urllib.request.urlopen(r, timeout=15).status == 200
     except Exception:
-        return 0
-
-
-def _gridfs_video(vid: str):
-    if _vids is None or _fs is None:
-        return None
-    try:
-        doc = _vids.find_one({"video_id": vid})
-        if doc:
-            return _fs.get(doc["file_id"]).read()
-    except Exception:
-        pass
-    return None
+        return False
 
 
 # ============================================================
@@ -464,17 +481,11 @@ def options():
 
 @app.get("/api/feed")
 def feed():
-    items = []
-    if _vids is not None:
-        try:
-            for doc in _vids.find({}, {"_id": 0}).sort("created_at", -1).limit(20):
-                items.append({
-                    "video_id": doc["video_id"],
-                    "url": f"/api/video/{doc['video_id']}/final.mp4",
-                    "scene": doc.get("scene_prompt", ""),
-                    "created_at": doc.get("created_at", 0)})
-        except Exception:
-            items = []
+    items = [{"video_id": i["video_id"],
+              "url": f"/api/video/{i['video_id']}/final.mp4",
+              "scene": i.get("scene", ""),
+              "created_at": i.get("created_at", 0)}
+             for i in sorted(_manifest(), key=lambda x: -x.get("created_at", 0))[:20]]
     return {"ok": True, "videos": items}
 
 
@@ -482,10 +493,9 @@ def feed():
 def get_video(vid: str):
     if not re.fullmatch(r"[0-9a-f]{10}", vid):
         raise HTTPException(404)
-    data = _gridfs_video(vid)
-    if data is not None:
-        from fastapi.responses import Response
-        return Response(data, media_type="video/mp4")
+    if _supa_has(vid):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(_supa_public(vid))
     f = WORK / vid / "final.mp4"
     if not f.exists():
         raise HTTPException(404)
