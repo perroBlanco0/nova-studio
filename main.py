@@ -235,6 +235,10 @@ def _motion_available() -> bool:
     return ok
 
 
+def _motion_mark(ok: bool):
+    _MOTION_CACHE.update(ts=time.time(), ok=ok)
+
+
 # ============================================================
 # Platform: local — ffmpeg (fallback de video y mux de audio/subs)
 # ============================================================
@@ -436,17 +440,21 @@ async def video(req: VidReq):
                                     d / "anim.mp4", req.seed, req.uncensored)
             src = d / "anim.mp4"
             if src.exists():
+                _motion_mark(True)
                 if audio or (srt and srt.exists() and srt.read_text().strip()):
                     await asyncio.to_thread(_mux, src, audio, srt, out)
                 else:
                     src.rename(out)
         except Exception as e:
+            _motion_mark(False)
             anim_err = f"wan: {e}"
         if req.engine == "auto" and not out.exists():
             try:
                 await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
             except Exception as e:
                 anim_err = (anim_err or "") + f" vidu: {e}"
+        if not out.exists() and req.engine in ("auto", "wan"):
+            raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
     if not out.exists():
         try:
             await asyncio.to_thread(_render, img, audio, srt, out, dur)

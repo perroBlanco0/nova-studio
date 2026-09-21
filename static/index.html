@@ -266,6 +266,16 @@ async function genVid(b){
     clearInterval(tick);
     if(!res.ok||!r.ok){
       const m=(r.error&&r.error.message)||'No se pudo crear — intenta de nuevo';
+      if(m.indexOf('motion_unavailable')>=0){
+        spin.style.display='none';
+        const c=await Swal.fire({icon:'info',title:'Sin animación ahora',
+          text:'El motor de movimiento real está sin cuota — ¿te lo genero en modo cámara mientras tanto?',
+          showCancelButton:true,confirmButtonText:'Sí, modo cámara',cancelButtonText:'No',
+          background:'#151522',color:'#fff',confirmButtonColor:'#ff2d55'});
+        b.disabled=false; b.textContent='▶ Crear video';
+        if(c.isConfirmed){ document.getElementById('engine').value='static'; genVid(b); }
+        return;
+      }
       if(m.indexOf('429')>=0||m.indexOf('Too Many')>=0){
         Swal.fire({icon:'warning',title:'Demasiadas solicitudes',text:'El generador está saturado — intenta de nuevo en 2 minutos',background:'#151522',color:'#fff',confirmButtonColor:'#ff2d55'});
         spin.textContent='El generador está saturado — reintenta en un par de minutos';
