@@ -424,8 +424,37 @@ def get_upload(uid: str):
     raise HTTPException(404)
 
 
+def _vreq_log(vid, req, status, err, t0):
+    if not SUPA_URL or not SUPA_KEY:
+        return
+    try:
+        _rpc("vreq_log", {
+            "p_video_id": vid, "p_char": req.char_prompt[:500],
+            "p_scene": req.scene_prompt[:500],
+            "p_dialogue": req.dialogue[:300], "p_engine": req.engine,
+            "p_voice": req.voice, "p_dur": req.duration_s,
+            "p_unc": req.uncensored, "p_img": req.image_id,
+            "p_status": status, "p_error": (err or "")[:500],
+            "p_ms": int((time.time() - t0) * 1000)})
+    except Exception as e:
+        print("vreq_log failed:", e, flush=True)
+
+
 @app.post("/api/video")  # Pollinations → Edge-TTS → Wan 2.2/Vidu/ffmpeg
 async def video(req: VidReq):
+    t0 = time.time()
+    vid = uuid.uuid4().hex[:10]
+    try:
+        return await _video_inner(req, vid, t0)
+    except HTTPException as e:
+        _vreq_log(vid, req, f"error_{e.status_code}", str(e.detail), t0)
+        raise
+    except Exception as e:
+        _vreq_log(vid, req, "error_500", str(e), t0)
+        raise HTTPException(500, str(e)[:300])
+
+
+async def _video_inner(req: VidReq, vid: str, t0: float):
     if not req.scene_prompt.strip():
         raise HTTPException(400, "scene_prompt is required")
     if not req.image_id and not req.char_prompt.strip():
@@ -438,7 +467,6 @@ async def video(req: VidReq):
         raise HTTPException(400, "seed must be a positive integer")
     dur_anim = min(max(req.duration_s, 2.0), 8.0)
 
-    vid = uuid.uuid4().hex[:10]
     d = WORK / vid
     d.mkdir()
     img = d / "scene.png"
@@ -493,6 +521,7 @@ async def video(req: VidReq):
             raise HTTPException(500, "ffmpeg failed: " + e.stderr.decode()[-300:])
     await asyncio.to_thread(_store_video, vid, req.char_prompt,
                             req.scene_prompt, out)
+    _vreq_log(vid, req, "ok", anim_err, t0)
     resp = {"ok": True, "video_id": vid,
             "download": f"/api/video/{vid}/final.mp4",
             "preview": f"/api/video/{vid}/preview.png"}
@@ -516,6 +545,15 @@ def options():
                         {"id": "wan", "label": "Solo Wan 2.2"},
                         {"id": "static", "label": "Solo imagen con cámara"}],
             "durations": [3.5, 5.0, 8.0]}
+
+
+@app.get("/api/requests")
+def request_log():
+    try:
+        rows = _rpc("vreq_list", {"lim": 50})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, "requests": rows}
 
 
 @app.get("/api/feed")
