@@ -232,11 +232,23 @@ async def upload(request: Request):
     data = await f.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(413, "max 15MB")
-    if not (f.content_type or "").startswith("image/"):
+    sig = data[:16]
+    magic = (sig[:8] == b"\x89PNG\r\n\x1a\n" or sig[:2] == b"\xff\xd8"
+             or sig[:4] == b"RIFF" or sig[4:12] in (b"ftypavif", b"ftypheic"))
+    if not ((f.content_type or "").startswith("image/") or magic):
         raise HTTPException(400, "must be an image")
     uid = uuid.uuid4().hex[:10]
-    ext = Path(f.filename).suffix or ".png"
-    (UPLOADS / f"{uid}{ext}").write_bytes(data)
+    src = UPLOADS / f"{uid}.src"
+    src.write_bytes(data)
+    dst = UPLOADS / f"{uid}.jpg"
+    r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
+                        "-vf", "scale='min(1080,iw)':-2", "-q:v", "3", str(dst)],
+                       capture_output=True)
+    if r.returncode != 0 or not dst.exists():
+        dst = UPLOADS / f"{uid}{Path(f.filename).suffix or '.png'}"
+        src.rename(dst)
+    else:
+        src.unlink(missing_ok=True)
     return {"ok": True, "image_id": uid, "url": f"/api/upload/{uid}"}
 
 
