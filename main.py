@@ -283,10 +283,31 @@ def _animate_kaggle(img: Path, scene_prompt: str, out: Path, seconds: float):
     req = urllib.request.Request(
         KAGGLE_URL + "/generate", data=payload,
         headers={"Content-Type": "application/json"}, method="POST")
-    r = json.loads(urllib.request.urlopen(req, timeout=600).read())
+    r = json.loads(urllib.request.urlopen(req, timeout=120).read())
     if not r.get("ok"):
-        raise RuntimeError("kaggle generate failed")
-    out.write_bytes(base64.b64decode(r["video_b64"]))
+        raise RuntimeError("kaggle: " + str(r.get("error", "generate failed"))[:200])
+    if r.get("video_b64"):  # respuesta directa
+        out.write_bytes(base64.b64decode(r["video_b64"]))
+        return
+    job = r.get("job")
+    if not job:
+        raise RuntimeError("kaggle: sin job ni video")
+    deadline = time.time() + 780  # 13 min
+    while time.time() < deadline:
+        time.sleep(10)
+        try:
+            rr = json.loads(urllib.request.urlopen(
+                KAGGLE_URL + "/result?id=" + job, timeout=30).read())
+        except Exception:
+            continue
+        if not rr.get("ok"):
+            continue
+        if rr.get("status") == "done":
+            out.write_bytes(base64.b64decode(rr["video_b64"]))
+            return
+        if rr.get("status") == "error":
+            raise RuntimeError("kaggle: " + str(rr.get("error", ""))[:200])
+    raise RuntimeError("kaggle: timeout esperando video")
 
 
 _MOTION_CACHE = {"ts": 0.0, "ok": False, "dead_until": 0.0}
