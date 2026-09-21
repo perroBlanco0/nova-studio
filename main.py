@@ -234,11 +234,13 @@ def _animate_vidu(img: Path, scene_prompt: str, out: Path):
     vidu_gen.generate_sync(img, scene_prompt, out)
 
 
-_MOTION_CACHE = {"ts": 0.0, "ok": False}
+_MOTION_CACHE = {"ts": 0.0, "ok": False, "dead_until": 0.0}
 
 
 def _motion_available() -> bool:
     now = time.time()
+    if now < _MOTION_CACHE["dead_until"]:
+        return False
     if now - _MOTION_CACHE["ts"] < 60:
         return _MOTION_CACHE["ok"]
     import wan_gen
@@ -260,7 +262,12 @@ def _motion_available() -> bool:
 
 
 def _motion_mark(ok: bool):
-    _MOTION_CACHE.update(ts=time.time(), ok=ok)
+    if ok:
+        _MOTION_CACHE.update(ts=time.time(), ok=True, dead_until=0.0)
+    else:
+        # real generation failed -> treat motion as down for 10 min
+        _MOTION_CACHE.update(ts=time.time(), ok=False,
+                             dead_until=time.time() + 600)
 
 
 # ============================================================
