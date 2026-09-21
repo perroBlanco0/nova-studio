@@ -243,6 +243,11 @@ if not KAGGLE_URL and _KAGGLE_FILE.exists():
     KAGGLE_URL = _KAGGLE_FILE.read_text().strip()
 
 
+@app.get("/api/kaggle/register")
+async def kaggle_status():
+    return {"ok": True, "url": KAGGLE_URL}
+
+
 @app.post("/api/kaggle/register")
 async def kaggle_register(request: Request):
     try:
