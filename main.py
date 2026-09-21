@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -60,10 +61,18 @@ def _scene_image_prompt(char_prompt: str, scene_prompt: str) -> str:
         + scene_prompt + ", natural skin, imperfect, indoor light")
 
 
-def _dl(url: str, out: Path):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=180) as r, open(out, "wb") as f:
-        f.write(r.read())
+def _dl(url: str, out: Path, retries: int = 4):
+    last = None
+    for i in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=180) as r, open(out, "wb") as f:
+                f.write(r.read())
+            return
+        except Exception as e:
+            last = e
+            time.sleep(min(4 * (i + 1), 15))
+    raise last
 
 
 # ============================================================

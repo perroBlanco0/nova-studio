@@ -62,6 +62,7 @@
     .row{flex-direction:column;gap:0}
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body>
 <div class="logo">NOVA<b>Studio</b><i>.</i></div>
@@ -221,7 +222,16 @@ async function genVid(b){
       uncensored:document.getElementById('nsfw').checked})});
     const r=await res.json().catch(()=>({}));
     clearInterval(tick);
-    if(!res.ok||!r.ok){ spin.textContent=(r.error&&r.error.message)||'No se pudo crear — intenta de nuevo'; b.disabled=false; b.textContent='▶ Crear video'; return; }
+    if(!res.ok||!r.ok){
+      const m=(r.error&&r.error.message)||'No se pudo crear — intenta de nuevo';
+      if(m.indexOf('429')>=0||m.indexOf('Too Many')>=0){
+        Swal.fire({icon:'warning',title:'Demasiadas solicitudes',text:'El generador está saturado — intenta de nuevo en 2 minutos',background:'#151522',color:'#fff',confirmButtonColor:'#ff2d55'});
+        spin.textContent='El generador está saturado — reintenta en un par de minutos';
+      } else {
+        Swal.fire({icon:'error',title:'No se pudo crear',text:m,background:'#151522',color:'#fff',confirmButtonColor:'#ff2d55'});
+        spin.textContent=m;
+      }
+      b.disabled=false; b.textContent='▶ Crear video'; return; }
     spin.style.display='none';
     document.getElementById('vstat').textContent=r.fallback?'Salió con movimiento de cámara':'';
     document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar video</a>';
