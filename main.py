@@ -69,6 +69,27 @@ def _db_list(lim: int = 50) -> list:
         return []
 
 
+def _manifest() -> list:
+    try:
+        with _supa_req("GET", "object/public/videos/manifest.json") as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+
+def _db_migrate():
+    try:
+        have = {i["video_id"] for i in _db_list(500)}
+        for i in _manifest():
+            if i.get("video_id") and i["video_id"] not in have:
+                _rpc("videos_insert", {"p_id": i["video_id"],
+                                       "p_char": i.get("char", "")[:140],
+                                       "p_scene": i.get("scene", "")[:140],
+                                       "p_size": i.get("size", 0)})
+    except Exception as e:
+        print("migrate failed:", e, flush=True)
+
+
 def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
     if not SUPA_URL or not SUPA_KEY:
         return
@@ -492,6 +513,7 @@ def options():
 
 @app.get("/api/feed")
 def feed():
+    _db_migrate()
     items = [{"video_id": i["video_id"],
               "url": f"/api/video/{i['video_id']}/final.mp4",
               "scene": i.get("scene", ""),
