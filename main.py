@@ -52,20 +52,21 @@ def _supa_public(vid: str) -> str:
     return f"{SUPA_URL}/storage/v1/object/public/videos/{vid}.mp4"
 
 
-def _manifest() -> list:
-    try:
-        with _supa_req("GET", "object/public/videos/manifest.json") as r:
-            return json.loads(r.read())
-    except Exception:
-        return []
+def _rpc(fn: str, params: dict = None):
+    url = SUPA_URL + "/rest/v1/rpc/" + fn
+    hdr = {"Authorization": "Bearer " + SUPA_KEY, "apikey": SUPA_KEY,
+           "Content-Type": "application/json"}
+    data = json.dumps(params or {}).encode()
+    r = urllib.request.Request(url, data=data, headers=hdr, method="POST")
+    return json.loads(urllib.request.urlopen(r, timeout=30).read())
 
 
-def _save_manifest(items: list):
+def _db_list(lim: int = 50) -> list:
     try:
-        _supa_req("PUT", "object/videos/manifest.json",
-                  json.dumps(items).encode(), "application/json")
+        return _rpc("videos_list", {"lim": lim})
     except Exception as e:
-        print("manifest save failed:", e, flush=True)
+        print("videos_list failed:", e, flush=True)
+        return []
 
 
 def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
@@ -73,20 +74,20 @@ def _store_video(vid: str, char_prompt: str, scene_prompt: str, mp4: Path):
         return
     try:
         _supa_req("PUT", f"object/videos/{vid}.mp4", mp4.read_bytes(), "video/mp4")
-        items = _manifest()
-        items = [i for i in items if i.get("video_id") != vid]
-        items.append({"video_id": vid, "scene": scene_prompt[:140],
-                      "char": char_prompt[:140], "created_at": time.time(),
-                      "size": mp4.stat().st_size})
+        _rpc("videos_insert", {"p_id": vid, "p_char": char_prompt[:140],
+                               "p_scene": scene_prompt[:140],
+                               "p_size": mp4.stat().st_size})
+        items = _db_list(500)
         total = sum(i.get("size", 0) for i in items)
-        while total > SUPA_LIMIT and items:
-            old = items.pop(0)
+        for old in items[::-1]:
+            if total <= SUPA_LIMIT:
+                break
             try:
                 _supa_req("DELETE", f"object/videos/{old['video_id']}.mp4")
+                _rpc("videos_delete", {"p_id": old["video_id"]})
             except Exception:
                 pass
             total -= old.get("size", 0)
-        _save_manifest(items)
     except Exception as e:
         print("store_video failed:", e, flush=True)
 
@@ -495,8 +496,32 @@ def feed():
               "url": f"/api/video/{i['video_id']}/final.mp4",
               "scene": i.get("scene", ""),
               "created_at": i.get("created_at", 0)}
-             for i in sorted(_manifest(), key=lambda x: -x.get("created_at", 0))[:20]]
+             for i in _db_list(50)]
     return {"ok": True, "videos": items}
+
+
+@app.delete("/api/video/{vid}")
+async def del_video(vid: str):
+    def _do():
+        try:
+            _supa_req("DELETE", f"object/videos/{vid}.mp4")
+        except Exception:
+            pass
+        return _rpc("videos_delete", {"p_id": vid})
+    rows = await asyncio.to_thread(_do)
+    if not rows:
+        raise HTTPException(404, "video not found")
+    return {"ok": True}
+
+
+@app.put("/api/video/{vid}")
+async def upd_video(vid: str, req: Request):
+    body = await req.json()
+    rows = await asyncio.to_thread(_rpc, "videos_update",
+                                   {"p_id": vid, "p_scene": body.get("scene")})
+    if not rows:
+        raise HTTPException(404, "video not found")
+    return {"ok": True, "video": rows[0]}
 
 
 @app.get("/api/video/{vid}/final.mp4")
