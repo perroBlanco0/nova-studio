@@ -9,6 +9,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import base64
 import random
 import edge_tts
 from fastapi import FastAPI, HTTPException, Request
@@ -234,6 +235,25 @@ def _animate_wan(img: Path, scene_prompt: str, out: Path, seed: int,
 def _animate_vidu(img: Path, scene_prompt: str, out: Path):
     import vidu_gen
     vidu_gen.generate_sync(img, scene_prompt, out)
+
+
+KAGGLE_URL = os.environ.get("KAGGLE_VIDEO_URL", "").rstrip("/")
+
+
+def _animate_kaggle(img: Path, scene_prompt: str, out: Path, seconds: float):
+    if not KAGGLE_URL:
+        raise RuntimeError("kaggle not configured")
+    payload = json.dumps({
+        "image_b64": base64.b64encode(img.read_bytes()).decode(),
+        "prompt": scene_prompt, "seconds": min(max(seconds, 2.0), 5.0)
+    }).encode()
+    req = urllib.request.Request(
+        KAGGLE_URL + "/generate", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST")
+    r = json.loads(urllib.request.urlopen(req, timeout=600).read())
+    if not r.get("ok"):
+        raise RuntimeError("kaggle generate failed")
+    out.write_bytes(base64.b64decode(r["video_b64"]))
 
 
 _MOTION_CACHE = {"ts": 0.0, "ok": False, "dead_until": 0.0}
@@ -518,6 +538,12 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         except Exception as e:
             _motion_mark(False)
             anim_err = f"wan: {e}"
+        if req.engine == "auto" and not out.exists() and KAGGLE_URL:
+            try:
+                await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt,
+                                        out, dur_anim)
+            except Exception as e:
+                anim_err = (anim_err or "") + f" kaggle: {e}"
         if req.engine == "auto" and not out.exists():
             try:
                 await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
