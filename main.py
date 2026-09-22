@@ -237,6 +237,52 @@ def _animate_vidu(img: Path, scene_prompt: str, out: Path):
     vidu_gen.generate_sync(img, scene_prompt, out)
 
 
+# ============================================================
+# Platform: fal.ai — Wan 2.2 serverless, pago por uso (~$0.05/video)
+# ============================================================
+
+FAL_KEY = os.environ.get("FAL_KEY", "").strip()
+FAL_MODEL = "fal-ai/wan-i2v"
+
+
+def _animate_fal(img: Path, scene_prompt: str, out: Path, seconds: float):
+    if not FAL_KEY:
+        raise RuntimeError("fal: sin FAL_KEY")
+    hdrs = {"Authorization": "Key " + FAL_KEY,
+            "Content-Type": "application/json"}
+    body = {
+        "prompt": ("natural body motion, subtle movement, "
+                   + scene_prompt + ", cinematic"),
+        "image_url": "data:image/jpeg;base64,"
+                     + base64.b64encode(img.read_bytes()).decode(),
+        "video_length": "5 Seconds" if seconds <= 6 else "10 Seconds",
+        "resolution": "480p",
+    }
+    req = urllib.request.Request(
+        "https://queue.fal.run/" + FAL_MODEL, data=json.dumps(body).encode(),
+        headers=hdrs, method="POST")
+    r = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    status_url, resp_url = r.get("status_url"), r.get("response_url")
+    if not status_url or not resp_url:
+        raise RuntimeError("fal: " + json.dumps(r)[:200])
+    deadline = time.time() + 780
+    while time.time() < deadline:
+        time.sleep(5)
+        st = json.loads(urllib.request.urlopen(urllib.request.Request(
+            status_url, headers=hdrs), timeout=30).read())
+        if st.get("status") == "COMPLETED":
+            res = json.loads(urllib.request.urlopen(urllib.request.Request(
+                resp_url, headers=hdrs), timeout=60).read())
+            vurl = (res.get("video") or {}).get("url")
+            if not vurl:
+                raise RuntimeError("fal: sin video en respuesta")
+            out.write_bytes(urllib.request.urlopen(vurl, timeout=120).read())
+            return
+        if st.get("status") in ("FAILED", "ERROR"):
+            raise RuntimeError("fal: " + json.dumps(st)[:200])
+    raise RuntimeError("fal: timeout esperando video")
+
+
 KAGGLE_URL = os.environ.get("KAGGLE_VIDEO_URL", "").rstrip("/")
 KAGGLE_SECRET = os.environ.get("KAGGLE_SECRET", "")
 _KAGGLE_FILE = Path("/tmp/kaggle_url.txt")
@@ -594,8 +640,8 @@ async def video(req: VidReq):
         raise HTTPException(400, "scene_prompt is required")
     if not req.image_id and not req.char_prompt.strip():
         raise HTTPException(400, "char_prompt or image_id is required")
-    if req.engine not in ("auto", "wan", "static"):
-        raise HTTPException(400, "engine must be auto|wan|static")
+    if req.engine not in ("auto", "wan", "fal", "static"):
+        raise HTTPException(400, "engine must be auto|wan|fal|static")
     if req.voice not in ("female", "male", "none"):
         raise HTTPException(400, "voice must be female|male|none")
     if req.image_id and not list(UPLOADS.glob(req.image_id + ".*")):
@@ -662,20 +708,33 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
 
     out = d / "final.mp4"
     anim_err = None
-    if req.engine in ("auto", "wan"):
-        try:
-            await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
-                                    d / "anim.mp4", req.seed, req.uncensored)
-            src = d / "anim.mp4"
-            if src.exists():
-                _motion_mark(True)
-                if audio or (srt and srt.exists() and srt.read_text().strip()):
-                    await asyncio.to_thread(_mux, src, audio, srt, out)
-                else:
-                    src.rename(out)
-        except Exception as e:
-            _motion_mark(False)
-            anim_err = f"wan: {e}"
+    if req.engine in ("auto", "wan", "fal"):
+        if req.engine == "fal":
+            try:
+                await asyncio.to_thread(_animate_fal, img, req.scene_prompt,
+                                        d / "anim_fal.mp4", dur_anim)
+                src = d / "anim_fal.mp4"
+                if src.exists():
+                    if audio or (srt and srt.exists() and srt.read_text().strip()):
+                        await asyncio.to_thread(_mux, src, audio, srt, out)
+                    else:
+                        src.rename(out)
+            except Exception as e:
+                anim_err = f"fal: {e}"
+        else:
+            try:
+                await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
+                                        d / "anim.mp4", req.seed, req.uncensored)
+                src = d / "anim.mp4"
+                if src.exists():
+                    _motion_mark(True)
+                    if audio or (srt and srt.exists() and srt.read_text().strip()):
+                        await asyncio.to_thread(_mux, src, audio, srt, out)
+                    else:
+                        src.rename(out)
+            except Exception as e:
+                _motion_mark(False)
+                anim_err = f"wan: {e}"
         if req.engine == "auto" and not out.exists() and KAGGLE_URL:
             try:
                 await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt,
@@ -687,7 +746,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
                 await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
             except Exception as e:
                 anim_err = (anim_err or "") + f" vidu: {e}"
-        if not out.exists() and req.engine in ("auto", "wan"):
+        if not out.exists() and req.engine in ("auto", "wan", "fal"):
             raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
     if not out.exists():
         try:
@@ -717,6 +776,7 @@ def options():
                        {"id": "male", "label": "Masculina (Lorenzo, Chile)"},
                        {"id": "none", "label": "Sin voz"}],
             "engines": [{"id": "auto", "label": "Animación real (auto)"},
+                        {"id": "fal", "label": "Animación pagada (fal.ai)"},
                         {"id": "wan", "label": "Solo Wan 2.2"},
                         {"id": "static", "label": "Solo imagen con cámara"}],
             "durations": [3.5, 5.0, 8.0]}
