@@ -780,9 +780,16 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         else:
             src.rename(out)
 
+    # A separate, always-fresh seed for the motion/animation step. req.seed
+    # keeps the character's look consistent across videos (by design), but
+    # reusing that same fixed seed for the animation too made every video
+    # for a given character come out with near-identical motion regardless
+    # of scene_prompt — this randomizes just the motion each time.
+    anim_seed = random.randint(1, 2**31 - 1)
+
     async def _step_wan():
         await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
-                                d / "anim.mp4", req.seed, req.uncensored)
+                                d / "anim.mp4", anim_seed, req.uncensored)
         src = d / "anim.mp4"
         if not src.exists():
             raise RuntimeError("no output produced")
