@@ -15,9 +15,10 @@ def _req(url, data=None, headers=None, timeout=60):
 def upload(base: str, img_path: str) -> str:
     p = Path(img_path)
     boundary = uuid.uuid4().hex
+    content_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
     body = (b"--" + boundary.encode() + b'\r\nContent-Disposition: form-data; '
             b'name="files"; filename="' + p.name.encode() + b'"\r\n'
-            b"Content-Type: " + mimetypes.guess_type(p.name)[0].encode()
+            b"Content-Type: " + content_type.encode()
             + b"\r\n\r\n" + p.read_bytes() + b"\r\n--" + boundary.encode()
             + b"--\r\n")
     r = _req(base + "/gradio_api/upload", body,
@@ -62,8 +63,6 @@ def call_sse(base: str, fn: str, data: list, timeout=600) -> str:
                             video_url = sub.get("url") or sub.get("path")
                 except Exception:
                     continue
-                if video_url:
-                    break
     if not video_url:
         raise RuntimeError("no video in space response")
     if video_url.startswith("/"):
