@@ -1,0 +1,58 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Byte-compiled / optimized / DLL files
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / type-checker caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Editor / OS artifacts ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ---
+*.log
+*.tmp
+.cache/
+
+# --- Test/e2e binary artifacts (prospective only) ---
+# Prevents accidentally committing new test media (video/image/audio) dropped
+# into end-to-end / scratch folders. Does NOT affect files already tracked
+# (e.g. existing binaries under wan-e2e/) — .gitignore only applies to future,
+# untracked files.
+*-e2e/*.mp4
+*-e2e/*.mov
+*-e2e/*.avi
+*-e2e/*.png
+*-e2e/*.jpg
+*-e2e/*.jpeg
+*-e2e/*.gif
+*-e2e/*.wav
+*-e2e/*.mp3
