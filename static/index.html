@@ -49,6 +49,7 @@
   .chars div:hover{border-color:var(--acc2)}
   .chars div.sel{border-color:var(--acc);background:#241019}
   .motion-pill{display:none;align-items:center;gap:6px;margin:-16px 0 20px;padding:7px 16px;border-radius:999px;background:linear-gradient(135deg,#065f46,#0e7490);border:1px solid #25f4ee55;color:#a7f3d0;font-size:12px;font-weight:600;letter-spacing:.3px;box-shadow:0 0 18px #25f4ee22;animation:fadein .5s ease}
+  .engine-badge{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 14px;border-radius:999px;background:#1c1c28;border:1px solid var(--acc2);color:var(--acc2);font-size:12px;font-weight:700;letter-spacing:.3px;animation:fadein .4s ease}
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
@@ -155,6 +156,7 @@
   <h2>Tu video</h2>
   <div class="hint" id="vstat"></div>
   <div class="spin" id="vspin" style="display:none"></div>
+  <div id="vengine"></div>
   <div class="preview" id="vprev"></div>
   <button class="back" onclick="go(2)">← hacer otro video</button>
 </div>
@@ -226,6 +228,29 @@ async function checkMotion(){
   }catch(e){ document.getElementById('motionPill').style.display='none'; }
 }
 checkMotion(); setInterval(checkMotion,60000);
+let ENGINE_LABELS={};
+async function loadOptions(){
+  try{
+    const r=await (await fetch('/api/options')).json();
+    if(!r.ok) throw 0;
+    const voiceSel=document.getElementById('voice'), durSel=document.getElementById('dur'), engineSel=document.getElementById('engine');
+    const prevVoice=voiceSel.value, prevDur=durSel.value, prevEngine=engineSel.value;
+    if(Array.isArray(r.voices)&&r.voices.length){
+      voiceSel.innerHTML=r.voices.map(v=>'<option value="'+v.id+'">'+v.label+'</option>').join('');
+      if([...voiceSel.options].some(o=>o.value===prevVoice)) voiceSel.value=prevVoice;
+    }
+    if(Array.isArray(r.durations)&&r.durations.length){
+      durSel.innerHTML=r.durations.map(d=>'<option value="'+d+'">'+d+'s</option>').join('');
+      if([...durSel.options].some(o=>o.value===String(prevDur))) durSel.value=prevDur;
+    }
+    if(Array.isArray(r.engines)&&r.engines.length){
+      engineSel.innerHTML=r.engines.map(e=>'<option value="'+e.id+'">'+e.label+'</option>').join('');
+      if([...engineSel.options].some(o=>o.value===prevEngine)) engineSel.value=prevEngine;
+      r.engines.forEach(e=>{ ENGINE_LABELS[e.id]=e.label; });
+    }
+  }catch(e){ /* sin conexión: se mantienen las opciones fijas del HTML */ }
+}
+loadOptions();
 function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
@@ -291,7 +316,7 @@ async function genVid(b){
   if(!charDesc&&!imageId) return alert('Primero crea o sube tu personaje');
   if(b.disabled) return; b.disabled=true; b.textContent='Creando…';
   go(3); document.getElementById('vprev').innerHTML=''; document.getElementById('vspin').style.display='block';
-  document.getElementById('vstat').textContent='';
+  document.getElementById('vstat').textContent=''; document.getElementById('vengine').innerHTML='';
   const stages=['Armando la escena','Dándole movimiento','Casi listo']; let si=0;
   const spin=document.getElementById('vspin'); spin.textContent=stages[0];
   const tick=setInterval(()=>{ si=Math.min(si+1,stages.length-1); spin.textContent=stages[si]; },25000);
@@ -329,6 +354,9 @@ async function genVid(b){
       b.disabled=false; b.textContent='▶ Crear video'; return; }
     spin.style.display='none';
     document.getElementById('vstat').textContent=r.fallback?'Salió con movimiento de cámara':'';
+    const engUsed=r.engine_used;
+    document.getElementById('vengine').innerHTML=engUsed
+      ? '<div class="engine-badge">⚙ Generado con: '+(ENGINE_LABELS[engUsed]||engUsed)+'</div>' : '';
     document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar video</a>';
     loadFeed();
   }catch(e){ clearInterval(tick); spin.textContent='No se pudo crear — intenta de nuevo'; }
