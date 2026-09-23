@@ -605,14 +605,14 @@ def get_upload(uid: str):
     raise HTTPException(404)
 
 
-def _vreq_log(vid, req, status, err, t0):
+def _vreq_log(vid, req, status, err, t0, engine=None):
     if not SUPA_URL or not SUPA_KEY:
         return
     try:
         _rpc("vreq_log", {
             "p_video_id": vid, "p_char": req.char_prompt[:500],
             "p_scene": req.scene_prompt[:500],
-            "p_dialogue": req.dialogue[:300], "p_engine": req.engine,
+            "p_dialogue": req.dialogue[:300], "p_engine": engine or req.engine,
             "p_voice": req.voice, "p_dur": req.duration_s,
             "p_unc": req.uncensored, "p_img": req.image_id,
             "p_status": status, "p_error": (err or "")[:500],
@@ -708,6 +708,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
 
     out = d / "final.mp4"
     anim_err = None
+    used_engine = None
     if req.engine in ("auto", "wan", "fal"):
         if req.engine == "fal":
             try:
@@ -719,6 +720,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
                         await asyncio.to_thread(_mux, src, audio, srt, out)
                     else:
                         src.rename(out)
+                    used_engine = "fal"
             except Exception as e:
                 anim_err = f"fal: {e}"
         else:
@@ -732,6 +734,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
                         await asyncio.to_thread(_mux, src, audio, srt, out)
                     else:
                         src.rename(out)
+                    used_engine = "wan"
             except Exception as e:
                 _motion_mark(False)
                 anim_err = f"wan: {e}"
@@ -739,11 +742,15 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
             try:
                 await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt,
                                         out, dur_anim)
+                if out.exists():
+                    used_engine = "kaggle"
             except Exception as e:
                 anim_err = (anim_err or "") + f" kaggle: {e}"
         if req.engine == "auto" and not out.exists():
             try:
                 await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
+                if out.exists():
+                    used_engine = "vidu"
             except Exception as e:
                 anim_err = (anim_err or "") + f" vidu: {e}"
         if not out.exists() and req.engine in ("auto", "wan", "fal"):
@@ -751,14 +758,16 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
     if not out.exists():
         try:
             await asyncio.to_thread(_render, img, audio, srt, out, dur)
+            used_engine = "static"
         except subprocess.CalledProcessError as e:
             raise HTTPException(500, "ffmpeg failed: " + e.stderr.decode()[-300:])
     await asyncio.to_thread(_store_video, vid, req.char_prompt,
                             req.scene_prompt, out)
-    _vreq_log(vid, req, "ok", anim_err, t0)
+    _vreq_log(vid, req, "ok", anim_err, t0, engine=used_engine)
     resp = {"ok": True, "video_id": vid,
             "download": f"/api/video/{vid}/final.mp4",
-            "preview": f"/api/video/{vid}/preview.png"}
+            "preview": f"/api/video/{vid}/preview.png",
+            "engine_used": used_engine}
     if anim_err:
         resp["fallback"] = anim_err[:400]
     return resp
