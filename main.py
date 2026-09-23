@@ -773,60 +773,84 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         dur = 6.0
 
     out = d / "final.mp4"
+
+    async def _mux_if_needed(src: Path):
+        if audio or (srt and srt.exists() and srt.read_text().strip()):
+            await asyncio.to_thread(_mux, src, audio, srt, out)
+        else:
+            src.rename(out)
+
+    async def _step_wan():
+        await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
+                                d / "anim.mp4", req.seed, req.uncensored)
+        src = d / "anim.mp4"
+        if not src.exists():
+            raise RuntimeError("no output produced")
+        await _mux_if_needed(src)
+
+    async def _step_fal():
+        await asyncio.to_thread(_animate_fal, img, req.scene_prompt,
+                                d / "anim_fal.mp4", dur_anim)
+        src = d / "anim_fal.mp4"
+        if not src.exists():
+            raise RuntimeError("no output produced")
+        await _mux_if_needed(src)
+
+    async def _step_kaggle():
+        await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt, out, dur_anim)
+        if not out.exists():
+            raise RuntimeError("no output produced")
+
+    async def _step_vidu():
+        await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
+        if not out.exists():
+            raise RuntimeError("no output produced")
+
+    async def _step_static():
+        await asyncio.to_thread(_render, img, audio, srt, out, dur)
+
+    # Fallback chain, guaranteed by construction (a single loop, not scattered
+    # per-step conditionals): an explicit engine tries only itself and raises
+    # if it fails — the caller asked for that engine specifically, so silently
+    # trying another would ignore their request. "auto" tries every real
+    # AI motion engine in order (wan -> kaggle -> vidu) and raises if all of
+    # them fail. `static` (camera pan over the still image, no AI movement)
+    # is intentionally NOT part of the "auto" chain — it isn't real motion,
+    # so "auto" must never silently downgrade to it; it's only used when the
+    # caller explicitly asks for engine="static".
+    if req.engine == "wan":
+        chain = [("wan", _step_wan)]
+    elif req.engine == "fal":
+        chain = [("fal", _step_fal)]
+    elif req.engine == "static":
+        chain = [("static", _step_static)]
+    else:
+        chain = [("wan", _step_wan)]
+        if KAGGLE_URL:
+            chain.append(("kaggle", _step_kaggle))
+        chain.append(("vidu", _step_vidu))
+
     anim_err = None
     used_engine = None
-    if req.engine in ("auto", "wan", "fal"):
-        if req.engine == "fal":
-            try:
-                await asyncio.to_thread(_animate_fal, img, req.scene_prompt,
-                                        d / "anim_fal.mp4", dur_anim)
-                src = d / "anim_fal.mp4"
-                if src.exists():
-                    if audio or (srt and srt.exists() and srt.read_text().strip()):
-                        await asyncio.to_thread(_mux, src, audio, srt, out)
-                    else:
-                        src.rename(out)
-                    used_engine = "fal"
-            except Exception as e:
-                anim_err = f"fal: {e}"
-        else:
-            try:
-                await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
-                                        d / "anim.mp4", req.seed, req.uncensored)
-                src = d / "anim.mp4"
-                if src.exists():
-                    _motion_mark(True)
-                    if audio or (srt and srt.exists() and srt.read_text().strip()):
-                        await asyncio.to_thread(_mux, src, audio, srt, out)
-                    else:
-                        src.rename(out)
-                    used_engine = "wan"
-            except Exception as e:
-                _motion_mark(False)
-                anim_err = f"wan: {e}"
-        if req.engine == "auto" and not out.exists() and KAGGLE_URL:
-            try:
-                await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt,
-                                        out, dur_anim)
-                if out.exists():
-                    used_engine = "kaggle"
-            except Exception as e:
-                anim_err = (anim_err or "") + f" kaggle: {e}"
-        if req.engine == "auto" and not out.exists():
-            try:
-                await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
-                if out.exists():
-                    used_engine = "vidu"
-            except Exception as e:
-                anim_err = (anim_err or "") + f" vidu: {e}"
-        if not out.exists() and req.engine in ("wan", "fal"):
-            raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
-    if not out.exists():
+    last_exc = None
+    for name, step in chain:
         try:
-            await asyncio.to_thread(_render, img, audio, srt, out, dur)
-            used_engine = "static"
-        except subprocess.CalledProcessError as e:
-            raise HTTPException(500, "ffmpeg failed: " + e.stderr.decode()[-300:])
+            await step()
+            used_engine = name
+            if name == "wan":
+                _motion_mark(True)
+            last_exc = None
+            break
+        except Exception as e:
+            last_exc = e
+            if name == "wan":
+                _motion_mark(False)
+            anim_err = (anim_err + " " if anim_err else "") + f"{name}: {e}"
+
+    if used_engine is None:
+        if isinstance(last_exc, subprocess.CalledProcessError):
+            raise HTTPException(500, "ffmpeg failed: " + last_exc.stderr.decode()[-300:])
+        raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
     await asyncio.to_thread(_store_video, vid, req.char_prompt,
                             req.scene_prompt, out)
     _vreq_log(vid, req, "ok", anim_err, t0, engine=used_engine)
