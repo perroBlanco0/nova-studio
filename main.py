@@ -133,17 +133,48 @@ def _supa_has(vid: str) -> bool:
 POLL = "https://image.pollinations.ai/prompt/{p}?width=720&height=1280&nologo=true&seed={s}"
 POLL_TOKEN = os.environ.get("POLL_TOKEN", "")
 
+# Longitud máxima (en caracteres) del prompt combinado que se manda a un motor.
+# Los encoders CLIP que usan estos modelos truncan silenciosamente a ~77
+# tokens; en vez de dejar que corten a mitad de una cláusula sin avisar,
+# acotamos nosotros primero, cortando en el último separador de cláusula.
+MAX_IMAGE_PROMPT_CHARS = 380
+MAX_MOTION_PROMPT_CHARS = 380
 
-def _poll_url(prompt: str, seed: int, token: bool = True) -> str:
+# Qué evitar en la imagen semilla (adaptado del NEG de wan_gen.py, pero
+# orientado a fallas de una imagen fija en vez de fallas de movimiento).
+# Antes no había negative prompt en la generación de imagen: los defectos de
+# la imagen base (deformidades, mala anatomía) se heredaban al video animado.
+NEG_SCENE_IMAGE = ("blurry, low quality, deformed, disfigured, bad anatomy, "
+                    "extra limbs, mutated hands, extra fingers, watermark, "
+                    "text, logo, jpeg artifacts")
+
+
+def _clip_prompt(text: str, max_chars: int = MAX_IMAGE_PROMPT_CHARS) -> str:
+    """Acota un prompt combinado a `max_chars`, cortando en el último separador
+    de cláusula (coma) dentro del límite para no partir una frase a la mitad.
+    Evita depender del truncado silencioso del encoder del modelo."""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    last_comma = cut.rfind(",")
+    if last_comma > max_chars * 0.5:
+        cut = cut[:last_comma]
+    return cut.strip().rstrip(",").strip()
+
+
+def _poll_url(prompt: str, seed: int, token: bool = True, negative: str = "") -> str:
     u = POLL.format(p=prompt, s=seed)
+    if negative:
+        u += "&negative=" + negative
     return u + ("&token=" + POLL_TOKEN if token and POLL_TOKEN else "")
 
 
-def _dl_poll(prompt: str, seed: int, out: Path):
+def _dl_poll(prompt: str, seed: int, out: Path, negative: str = ""):
     try:
-        _dl(_poll_url(prompt, seed), out)
+        _dl(_poll_url(prompt, seed, negative=negative), out)
     except Exception:
-        _dl(_poll_url(prompt, seed, token=False), out)
+        _dl(_poll_url(prompt, seed, token=False, negative=negative), out)
 
 
 def _char_image_prompt(description: str) -> str:
@@ -173,9 +204,27 @@ def _char_view_prompt(description: str, view: str) -> str:
 
 
 def _scene_image_prompt(char_prompt: str, scene_prompt: str) -> str:
-    return urllib.parse.quote(
-        "photorealistic candid phone photo, " + char_prompt + ", "
-        + scene_prompt + ", natural skin, imperfect, indoor light")
+    """Arma el prompt de la imagen semilla agrupando cláusulas por rol
+    semántico (sujeto / escena / estilo) en vez de una lista plana de comas.
+    Antes personaje y escena quedaban mezclados sin jerarquía, lo que puede
+    causar 'attribute leakage' (ej. rasgos del personaje aplicados al fondo,
+    o viceversa) en el modelo de difusión. También acota la longitud del
+    prompt combinado antes de mandarlo a Pollinations."""
+    subject = char_prompt.strip().rstrip(",")
+    scene = scene_prompt.strip().rstrip(",")
+    clauses = []
+    if subject:
+        clauses.append("subject: " + subject)
+    if scene:
+        clauses.append("scene: " + scene)
+    clauses.append("style: photorealistic candid phone photo, natural skin, "
+                    "imperfect, indoor light")
+    prompt = _clip_prompt(", ".join(clauses), MAX_IMAGE_PROMPT_CHARS)
+    return urllib.parse.quote(prompt)
+
+
+def _scene_image_negative() -> str:
+    return urllib.parse.quote(NEG_SCENE_IMAGE)
 
 
 def _dl(url: str, out: Path, retries: int = 6):
@@ -218,11 +267,28 @@ async def _tts(text: str, mp3: Path, srt: Path, voice: str):
 # ============================================================
 
 
+def _motion_prompt(scene_prompt: str) -> str:
+    """Boilerplate de movimiento unificado entre motores de animación (Wan,
+    fal.ai, Kaggle). Antes cada motor armaba su propio prefijo fijo
+    ('natural body motion, subtle movement, ...'), inconsistente entre sí y
+    que contradecía escenas con acción explícita del usuario (ej. 'corriendo
+    rápido' vs. un 'subtle movement' forzado incondicionalmente). Aquí la
+    acción del usuario va primero y el cierre de estilo es neutro: no impone
+    ni 'sutil' ni 'intenso', solo pide coherencia física. También acota la
+    longitud combinada antes de mandarla al motor."""
+    scene = scene_prompt.strip().rstrip(",")
+    clauses = []
+    if scene:
+        clauses.append("action: " + scene)
+    clauses.append("style: natural physically-plausible motion, coherent "
+                    "limbs and anatomy, cinematic camera")
+    return _clip_prompt(", ".join(clauses), MAX_MOTION_PROMPT_CHARS)
+
+
 def _animate_wan(img: Path, scene_prompt: str, out: Path, seed: int,
                  uncensored: bool = False):
     import wan_gen
-    motion = ("natural body motion, subtle movement, "
-              + scene_prompt + ", cinematic")
+    motion = _motion_prompt(scene_prompt)
     wan_gen.generate(str(img), motion, str(out), seed,
                      safe_mode=not uncensored)
 
@@ -251,8 +317,7 @@ def _animate_fal(img: Path, scene_prompt: str, out: Path, seconds: float):
     hdrs = {"Authorization": "Key " + FAL_KEY,
             "Content-Type": "application/json"}
     body = {
-        "prompt": ("natural body motion, subtle movement, "
-                   + scene_prompt + ", cinematic"),
+        "prompt": _motion_prompt(scene_prompt),
         "image_url": "data:image/jpeg;base64,"
                      + base64.b64encode(img.read_bytes()).decode(),
         "video_length": "5 Seconds" if seconds <= 6 else "10 Seconds",
@@ -360,7 +425,8 @@ def _animate_kaggle(img: Path, scene_prompt: str, out: Path, seconds: float):
         raise RuntimeError("kaggle not configured")
     payload = json.dumps({
         "image_b64": base64.b64encode(img.read_bytes()).decode(),
-        "prompt": scene_prompt, "seconds": min(max(seconds, 2.0), 5.0)
+        "prompt": _motion_prompt(scene_prompt),
+        "seconds": min(max(seconds, 2.0), 5.0)
     }).encode()
     req = urllib.request.Request(
         KAGGLE_URL + "/generate", data=payload,
@@ -694,7 +760,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         try:
             await asyncio.to_thread(
                 _dl_poll, _scene_image_prompt(req.char_prompt, req.scene_prompt),
-                req.seed, img)
+                req.seed, img, _scene_image_negative())
         except Exception as e:
             raise HTTPException(502, f"image gen failed: {e}")
 
