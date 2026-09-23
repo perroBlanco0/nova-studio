@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  py-compile:
+    name: Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: hashFiles('requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      - name: Compile tracked Python files
+        run: |
+          set -e
+          git ls-files '*.py' > /tmp/py_files.txt
+          if [ ! -s /tmp/py_files.txt ]; then
+            echo "No .py files found to compile."
+            exit 0
+          fi
+          echo "Compiling:"
+          cat /tmp/py_files.txt
+          xargs -a /tmp/py_files.txt python -m py_compile
