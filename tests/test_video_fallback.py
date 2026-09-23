@@ -1,15 +1,18 @@
 """Unit tests for the engine fallback chain in main._video_inner.
 
-Scope: engine="auto" tries wan -> kaggle (if KAGGLE_URL set) -> vidu -> static
-(_render), accumulating failures into `anim_err` (returned to the client as
-resp["fallback"]) and recording which one succeeded in `resp["engine_used"]`.
-An explicit engine="wan"/"fal" does NOT fall back to other engines — a
-failure there surfaces as a 503 instead of silently trying something else.
-All external calls (_animate_*, _render, _dl_poll, _tts, _store_video,
+Scope: engine="auto" tries every real AI motion engine in order — wan ->
+kaggle (if KAGGLE_URL set) -> vidu — accumulating failures into `anim_err`
+(returned to the client as resp["fallback"]) and recording which one
+succeeded in `resp["engine_used"]`. `static` (camera pan over the still
+image, no AI movement) is deliberately NOT part of the "auto" chain and is
+only used when the caller explicitly asks for engine="static" — "auto" must
+raise a 503 rather than silently downgrade to a non-AI result. An explicit
+engine="wan"/"fal" also does NOT fall back to other engines — a failure
+there surfaces as a 503 instead of silently trying something else. All
+external calls (_animate_*, _render, _dl_poll, _tts, _store_video,
 _vreq_log) are mocked; no real network/ffmpeg/playwright call is made.
 """
 import asyncio
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -61,26 +64,22 @@ def test_auto_wan_fails_kaggle_succeeds(work_dir, no_network):
     main._render.assert_not_called()
 
 
-def test_auto_all_engines_fail_falls_back_to_static(work_dir, no_network):
-    """engine=auto, wan/kaggle/vidu all fail: falls back to _render/static
-    instead of raising 503, matching the documented "auto -> wan -> kaggle ->
-    vidu -> static" fallback chain. Previously this raised HTTPException 503
-    without ever calling _render — fixed so `auto` only surfaces a 503 when
-    even the static fallback itself fails (see next test)."""
+def test_auto_all_engines_fail_raises_503_never_uses_static(work_dir, no_network):
+    """engine=auto, wan/kaggle/vidu all fail: raises HTTPException 503.
+    `static` has no AI movement, so "auto" must never silently downgrade to
+    it — `_render` must not be called."""
     main.KAGGLE_URL = "https://fake-kaggle.example"
     # wan/kaggle/vidu already fail via the no_network fixture defaults.
-    main._render.side_effect = lambda img, audio, srt, out, dur: Path(out).write_bytes(b"fake-static-mp4")
 
     req = make_req(engine="auto")
-    resp = run(main._video_inner(req, "vid_all_fail", 0.0))
+    with pytest.raises(HTTPException) as exc_info:
+        run(main._video_inner(req, "vid_all_fail", 0.0))
 
-    assert resp["ok"] is True
-    assert resp["engine_used"] == "static"
-    assert "fallback" in resp  # wan/kaggle/vidu errors are still surfaced
+    assert exc_info.value.status_code == 503
     main._animate_wan.assert_called_once()
     main._animate_kaggle.assert_called_once()
     main._animate_vidu.assert_called_once()
-    main._render.assert_called_once()
+    main._render.assert_not_called()
 
 
 def test_engine_wan_only_raises_503_without_static_fallback(work_dir, no_network):
