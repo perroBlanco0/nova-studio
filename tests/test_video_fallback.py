@@ -1,24 +1,15 @@
 """Unit tests for the engine fallback chain in main._video_inner.
 
-Scope: engine="auto" should try wan -> kaggle (if KAGGLE_URL set) -> vidu,
-accumulating failures into `anim_err` (returned to the client as
-resp["fallback"]). All external calls (_animate_*, _render, _dl_poll, _tts,
-_store_video, _vreq_log) are mocked; no real network/ffmpeg/playwright call
-is made.
-
-IMPORTANT — a finding, not a test-writing mistake: the current main.py does
-NOT expose a `used_engine` field on the response, and when engine="auto" and
-every real-motion engine (wan/kaggle/vidu) fails, `_video_inner` does *not*
-fall back to `_render` (the static/ffmpeg path). Instead it raises
-HTTPException(503) at main.py L749-750, before the `_render` fallback block
-at L751 is ever reached for engine in ("auto", "wan", "fal"). The `_render`
-fallback is only reachable when engine="static" from the start (the block at
-L711 is skipped entirely for that engine). See test
-`test_auto_all_engines_fail_raises_503_no_static_fallback` and
-`test_engine_static_uses_render_directly` below, and the final QA report for
-details.
+Scope: engine="auto" tries wan -> kaggle (if KAGGLE_URL set) -> vidu -> static
+(_render), accumulating failures into `anim_err` (returned to the client as
+resp["fallback"]) and recording which one succeeded in `resp["engine_used"]`.
+An explicit engine="wan"/"fal" does NOT fall back to other engines — a
+failure there surfaces as a 503 instead of silently trying something else.
+All external calls (_animate_*, _render, _dl_poll, _tts, _store_video,
+_vreq_log) are mocked; no real network/ffmpeg/playwright call is made.
 """
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -70,23 +61,40 @@ def test_auto_wan_fails_kaggle_succeeds(work_dir, no_network):
     main._render.assert_not_called()
 
 
-def test_auto_all_engines_fail_raises_503_no_static_fallback(work_dir, no_network):
-    """engine=auto, wan/kaggle/vidu all fail: main.py raises HTTPException
-    503 (L749-750) instead of falling back to _render/static. This
-    contradicts the "vidu/static as fallback for engine=auto" description in
-    the repo's own README-level summary — documented as a finding, not
-    asserted away. `_render` must never be called in this path."""
+def test_auto_all_engines_fail_falls_back_to_static(work_dir, no_network):
+    """engine=auto, wan/kaggle/vidu all fail: falls back to _render/static
+    instead of raising 503, matching the documented "auto -> wan -> kaggle ->
+    vidu -> static" fallback chain. Previously this raised HTTPException 503
+    without ever calling _render — fixed so `auto` only surfaces a 503 when
+    even the static fallback itself fails (see next test)."""
     main.KAGGLE_URL = "https://fake-kaggle.example"
     # wan/kaggle/vidu already fail via the no_network fixture defaults.
+    main._render.side_effect = lambda img, audio, srt, out, dur: Path(out).write_bytes(b"fake-static-mp4")
 
     req = make_req(engine="auto")
-    with pytest.raises(HTTPException) as exc_info:
-        run(main._video_inner(req, "vid_all_fail", 0.0))
+    resp = run(main._video_inner(req, "vid_all_fail", 0.0))
 
-    assert exc_info.value.status_code == 503
+    assert resp["ok"] is True
+    assert resp["engine_used"] == "static"
+    assert "fallback" in resp  # wan/kaggle/vidu errors are still surfaced
     main._animate_wan.assert_called_once()
     main._animate_kaggle.assert_called_once()
     main._animate_vidu.assert_called_once()
+    main._render.assert_called_once()
+
+
+def test_engine_wan_only_raises_503_without_static_fallback(work_dir, no_network):
+    """engine="wan" (not auto): if wan fails, it must NOT silently fall back
+    to kaggle/vidu/static — the user explicitly asked for wan only, so a
+    failure surfaces as a 503."""
+    req = make_req(engine="wan")
+    with pytest.raises(HTTPException) as exc_info:
+        run(main._video_inner(req, "vid_wan_only_fail", 0.0))
+
+    assert exc_info.value.status_code == 503
+    main._animate_wan.assert_called_once()
+    main._animate_kaggle.assert_not_called()
+    main._animate_vidu.assert_not_called()
     main._render.assert_not_called()
 
 
