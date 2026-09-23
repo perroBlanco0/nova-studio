@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -692,6 +693,15 @@ def _vreq_log(vid, req, status, err, t0, engine=None):
 JOBS: dict[str, dict] = {}
 JOB_TTL = 3600
 
+# sha256 of the last AI-animated (non-static) video actually produced. Safety
+# net on top of the per-call random anim_seed: if two consecutive videos
+# come out byte-identical despite different seeds/prompts (engine glitch,
+# cached upstream response, etc.), the offending engine is retried once
+# before the video reaches the feed. Single global is fine — one worker
+# (see Procfile), and a duplicate is a bug regardless of which user/session
+# triggered it.
+_LAST_MOTION_HASH: str | None = None
+
 
 def _job_gc():
     now = time.time()
@@ -780,14 +790,13 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         else:
             src.rename(out)
 
-    # A separate, always-fresh seed for the motion/animation step. req.seed
-    # keeps the character's look consistent across videos (by design), but
-    # reusing that same fixed seed for the animation too made every video
-    # for a given character come out with near-identical motion regardless
-    # of scene_prompt — this randomizes just the motion each time.
-    anim_seed = random.randint(1, 2**31 - 1)
-
     async def _step_wan():
+        # A fresh seed every call (including a duplicate-triggered retry
+        # below) — req.seed keeps the character's look consistent across
+        # videos (by design), but reusing that same fixed seed for the
+        # animation too made every video for a given character come out
+        # with near-identical motion regardless of scene_prompt.
+        anim_seed = random.randint(1, 2**31 - 1)
         await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
                                 d / "anim.mp4", anim_seed, req.uncensored)
         src = d / "anim.mp4"
@@ -858,6 +867,22 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         if isinstance(last_exc, subprocess.CalledProcessError):
             raise HTTPException(500, "ffmpeg failed: " + last_exc.stderr.decode()[-300:])
         raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
+
+    if used_engine != "static":
+        global _LAST_MOTION_HASH
+        h = hashlib.sha256(out.read_bytes()).hexdigest()
+        if h == _LAST_MOTION_HASH:
+            retry_step = dict(chain)[used_engine]
+            out.unlink(missing_ok=True)
+            try:
+                await retry_step()
+                h = hashlib.sha256(out.read_bytes()).hexdigest()
+            except Exception as e:
+                anim_err = (anim_err + " " if anim_err else "") + f"{used_engine}: duplicate-retry failed: {e}"
+            if h == _LAST_MOTION_HASH:
+                anim_err = (anim_err + " " if anim_err else "") + f"{used_engine}: output identical to previous video even after retry"
+        _LAST_MOTION_HASH = h
+
     await asyncio.to_thread(_store_video, vid, req.char_prompt,
                             req.scene_prompt, out)
     _vreq_log(vid, req, "ok", anim_err, t0, engine=used_engine)

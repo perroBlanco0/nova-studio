@@ -57,6 +57,7 @@ def no_network(monkeypatch):
     monkeypatch.setattr(main, "_render",
                         Mock(side_effect=RuntimeError("no mock configured: render")))
     monkeypatch.setattr(main, "KAGGLE_URL", "")
+    monkeypatch.setattr(main, "_LAST_MOTION_HASH", None)
     return monkeypatch
 
 
