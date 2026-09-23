@@ -819,7 +819,7 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
                     used_engine = "vidu"
             except Exception as e:
                 anim_err = (anim_err or "") + f" vidu: {e}"
-        if not out.exists() and req.engine in ("auto", "wan", "fal"):
+        if not out.exists() and req.engine in ("wan", "fal"):
             raise HTTPException(503, "motion_unavailable: " + (anim_err or "")[:300])
     if not out.exists():
         try:

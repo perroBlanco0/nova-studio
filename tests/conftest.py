@@ -34,7 +34,7 @@ def no_network(monkeypatch):
     regardless of which branch a given test exercises. Individual tests
     override _animate_* / _render as needed to simulate success/failure.
     """
-    def _fake_dl_poll(prompt, seed, out):
+    def _fake_dl_poll(prompt, seed, out, negative=""):
         Path(out).write_bytes(b"fake-image-bytes")
 
     monkeypatch.setattr(main, "_dl_poll", Mock(side_effect=_fake_dl_poll))
