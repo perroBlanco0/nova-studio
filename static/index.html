@@ -199,6 +199,7 @@ function loadSaved(){ savedEl.innerHTML=''; const cs=JSON.parse(localStorage.cha
 loadSaved();
 let feedIO=null;
 function navGo(n){
+  if(n===1){ location.reload(); return; }
   ['nv1','nv2','nv3'].forEach((id,i)=>document.getElementById(id).classList.toggle('on',i+1===n));
   document.getElementById('feedwrap').style.display=n===3?'block':'none';
   if(n!==3) document.querySelectorAll('#feed video').forEach(v=>v.pause());

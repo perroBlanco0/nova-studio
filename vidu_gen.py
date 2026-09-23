@@ -39,11 +39,21 @@ async def _click_text(pg, text, idx=-1):
     return ok
 
 
+_VIDEO_SRCS_JS = """() => [...document.querySelectorAll('video')]
+    .map(v => v.src || v.currentSrc)
+    .filter(s => s && (s.includes('infer') || s.endsWith('.mp4')))"""
+
+
 async def generate(image: Path, motion_prompt: str, out_mp4: Path,
                    timeout_s: int = 300) -> Path:
     async with async_playwright() as p:
         browser = await p.chromium.connect_over_cdp(CDP)
         pg = await _vidu_page(browser)
+
+        # videos already on the page (previous generations, gallery history)
+        # — must be excluded below so we don't return a stale clip instead
+        # of waiting for the one we're about to create.
+        seen_before = set(await pg.evaluate(_VIDEO_SRCS_JS))
 
         # upload reference image
         fi = pg.locator('input[type=file]').first
@@ -65,16 +75,15 @@ async def generate(image: Path, motion_prompt: str, out_mp4: Path,
         await pg.locator('button:has-text("Create")').first.click()
         await pg.wait_for_timeout(4000)
 
-        # poll for the generated infer video
+        # poll for the generated infer video — must be a URL that wasn't
+        # already on the page before this generation started.
         vid_url = None
         deadline = asyncio.get_event_loop().time() + timeout_s
         while asyncio.get_event_loop().time() < deadline:
-            vids = await pg.evaluate(
-                """() => [...document.querySelectorAll('video')]
-                     .map(v => v.src || v.currentSrc)
-                     .filter(s => s && (s.includes('infer') || s.endsWith('.mp4')))""")
-            if vids:
-                vid_url = vids[0]
+            vids = await pg.evaluate(_VIDEO_SRCS_JS)
+            new_vids = [v for v in vids if v not in seen_before]
+            if new_vids:
+                vid_url = new_vids[0]
                 break
             body = await pg.inner_text('body')
             if 'nsufficient' in body or 'nnot submit' in body:
