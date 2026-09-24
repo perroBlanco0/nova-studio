@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>NOVA Studio — crea tu video</title>
+<script src="/config.js"></script>
 <style>
   :root{--bg:#08080d;--card:#111119;--line:#23232f;--acc:#fe2c55;--acc2:#25f4ee;--txt:#f2f2f5;--mut:#8a8a99}
   *{box-sizing:border-box;margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
@@ -173,6 +174,11 @@
 </div>
 
 <script>
+const API_BASE=(window.NOVA_API_BASE_URL||'').replace(/\/+$/,'');
+function apiUrl(path){
+  if(!path||/^(data:|blob:|https?:)/.test(path)) return path;
+  return API_BASE+(path.startsWith('/')?'':'/')+path;
+}
 let charDesc='', seed=null, imageId='';
 const savedEl=document.getElementById('saved');
 const VIEWS=[
@@ -209,12 +215,12 @@ function navGo(n){
 let feedData=[];
 async function loadFeed(force){
   const wrap=document.getElementById('feedwrap'), feed=document.getElementById('feed');
-  try{ const res=await fetch('/api/feed'); const r=await res.json();
+  try{ const res=await fetch(apiUrl('/api/feed')); const r=await res.json();
     const vids=(r.ok&&r.videos)||[];
     feedData=vids;
     if(!vids.length){ feed.innerHTML='<div class="fempty">Aún no hay videos<br>créalo en el paso 2</div>'; return; }
-    feed.innerHTML=vids.map(v=>'<div class="fcard"><video src="'+v.url+'" muted loop playsinline preload="metadata"></video>'
-      +'<div class="fover"><div class="scene"></div><a class="dl2" href="'+v.url+'" download="nova-video.mp4">⬇ Descargar</a></div></div>').join('');
+    feed.innerHTML=vids.map(v=>{ const url=apiUrl(v.url); return '<div class="fcard"><video src="'+url+'" muted loop playsinline preload="metadata"></video>'
+      +'<div class="fover"><div class="scene"></div><a class="dl2" href="'+url+'" download="nova-video.mp4">⬇ Descargar</a></div></div>'; }).join('');
     feed.querySelectorAll('.fcard').forEach((c,i)=>{ c.querySelector('.scene').textContent=vids[i].scene||''; });
     if(feedIO) feedIO.disconnect();
     feedIO=new IntersectionObserver(es=>{ es.forEach(e=>{ const v=e.target.querySelector('video');
@@ -224,7 +230,7 @@ async function loadFeed(force){
 }
 loadFeed();
 async function checkMotion(){
-  try{ const r=await (await fetch('/api/motion_status')).json();
+  try{ const r=await (await fetch(apiUrl('/api/motion_status'))).json();
     document.getElementById('motionPill').style.display=r.motion?'flex':'none';
   }catch(e){ document.getElementById('motionPill').style.display='none'; }
 }
@@ -232,7 +238,7 @@ checkMotion(); setInterval(checkMotion,60000);
 let ENGINE_LABELS={};
 async function loadOptions(){
   try{
-    const r=await (await fetch('/api/options')).json();
+    const r=await (await fetch(apiUrl('/api/options'))).json();
     if(!r.ok) throw 0;
     const voiceSel=document.getElementById('voice'), durSel=document.getElementById('dur'), engineSel=document.getElementById('engine');
     const prevVoice=voiceSel.value, prevDur=durSel.value, prevEngine=engineSel.value;
@@ -260,14 +266,14 @@ async function genChar(b){
   document.getElementById('cspin').textContent='Creando tu personaje';
   const prev=document.getElementById('cprev');
   prev.innerHTML=VIEWS.map(v=>'<div class="cell loading" id="cell-'+v.k+'"></div>').join('');
-  try{ const res=await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed,views:VIEWS.map(v=>v.k)})});
+  try{ const res=await fetch(apiUrl('/api/character'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:charDesc,seed,views:VIEWS.map(v=>v.k)})});
     if(!res.ok) throw 0;
     const r=await res.json();
     seed=r.seed;
     const views=r.views||{front:r.image_url};
     let first=null;
     for(const v of VIEWS){
-      const url=views[v.k];
+      const url=apiUrl(views[v.k]);
       const cell=document.getElementById('cell-'+v.k);
       if(!url||!cell) continue;
       let okImg=false;
@@ -291,11 +297,11 @@ async function uploadImg(inp){
   const f=inp.files[0]; if(!f) return;
   document.getElementById('uprev').innerHTML='<div class="shimmer" style="aspect-ratio:9/16;max-width:200px"></div>';
   const fd=new FormData(); fd.append('file',f);
-  try{ const res=await fetch('/api/upload',{method:'POST',body:fd});
+  try{ const res=await fetch(apiUrl('/api/upload'),{method:'POST',body:fd});
     const r=await res.json();
     if(!res.ok||!r.ok) throw 0;
     imageId=r.image_id;
-    document.getElementById('uprev').innerHTML='<img class="fadein" src="'+r.url+'" style="max-width:200px;border-radius:12px">';
+    document.getElementById('uprev').innerHTML='<img class="fadein" src="'+apiUrl(r.url)+'" style="max-width:200px;border-radius:12px">';
     document.getElementById('cnext').style.display='block';
   }catch(e){ document.getElementById('uprev').innerHTML='<div class="spin">No se pudo subir</div>'; }
 }
@@ -304,7 +310,7 @@ async function pollVideoStatus(vid){
   while(Date.now()<deadline){
     await new Promise(r=>setTimeout(r,4000));
     try{
-      const res=await fetch('/api/video/'+vid+'/status');
+      const res=await fetch(apiUrl('/api/video/'+vid+'/status'));
       const r=await res.json();
       if(r.status==='processing') continue;
       return r;
@@ -322,7 +328,7 @@ async function genVid(b){
   const spin=document.getElementById('vspin'); spin.textContent=stages[0];
   const tick=setInterval(()=>{ si=Math.min(si+1,stages.length-1); spin.textContent=stages[si]; },25000);
   try{
-    const res=await fetch('/api/video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    const res=await fetch(apiUrl('/api/video'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       char_prompt:charDesc, seed:seed||0, image_id:imageId, scene_prompt:p, dialogue:document.getElementById('dialog').value,
       voice:document.getElementById('voice').value,
       duration_s:parseFloat(document.getElementById('dur').value),
@@ -358,7 +364,8 @@ async function genVid(b){
     const engUsed=r.engine_used;
     document.getElementById('vengine').innerHTML=engUsed
       ? '<div class="engine-badge">⚙ Generado con: '+(ENGINE_LABELS[engUsed]||engUsed)+'</div>' : '';
-    document.getElementById('vprev').innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download>⬇ Descargar video</a>';
+    const download=apiUrl(r.download);
+    document.getElementById('vprev').innerHTML='<video class="fadein" src="'+download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+download+'" download>⬇ Descargar video</a>';
     loadFeed();
   }catch(e){ clearInterval(tick); spin.textContent='No se pudo crear — intenta de nuevo'; }
   b.disabled=false; b.textContent='▶ Crear video';

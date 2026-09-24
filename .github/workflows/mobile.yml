@@ -1,0 +1,134 @@
+name: Mobile packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: HTTPS backend used by the mobile app
+        required: false
+        default: https://video.byrongonzalez.dev
+  pull_request:
+    paths:
+      - ".github/workflows/mobile.yml"
+      - "capacitor.config.json"
+      - "mobile/**"
+      - "package.json"
+      - "package-lock.json"
+      - "static/**"
+      - "main.py"
+  push:
+    branches:
+      - main
+    tags:
+      - "mobile-v*"
+    paths:
+      - ".github/workflows/mobile.yml"
+      - "capacitor.config.json"
+      - "mobile/**"
+      - "package.json"
+      - "package-lock.json"
+      - "static/**"
+      - "main.py"
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NOVA_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.NOVA_API_BASE_URL || 'https://video.byrongonzalez.dev' }}
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: Package APK
+        run: npm run mobile:android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-studio-android
+          path: artifacts/mobile/NOVA-Studio-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: Package unsigned IPA
+        run: npm run mobile:ios
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-studio-ios
+          path: artifacts/mobile/NOVA-Studio-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish tagged packages
+    if: startsWith(github.ref, 'refs/tags/mobile-v')
+    needs:
+      - android
+      - ios
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          release-assets/NOVA-Studio-debug.apk
+          release-assets/NOVA-Studio-unsigned.ipa
+          --repo "${GITHUB_REPOSITORY}"
+          --verify-tag
+          --generate-notes

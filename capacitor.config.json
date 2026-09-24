@@ -1,0 +1,9 @@
+{
+  "appId": "dev.byrongonzalez.novastudio",
+  "appName": "NOVA Studio",
+  "webDir": "mobile-dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  }
+}

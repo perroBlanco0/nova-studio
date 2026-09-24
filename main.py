@@ -15,11 +15,18 @@ import random
 import edge_tts
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["capacitor://localhost", "https://localhost"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 WORK = Path("/tmp/novavids")
 WORK.mkdir(exist_ok=True)

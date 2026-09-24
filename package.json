@@ -1,0 +1,25 @@
+{
+  "name": "nova-studio-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "mobile:prepare": "node mobile/prepare.mjs",
+    "mobile:sync": "npm run mobile:prepare && cap sync",
+    "mobile:android": "mobile/package.sh android",
+    "mobile:ios": "mobile/package.sh ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

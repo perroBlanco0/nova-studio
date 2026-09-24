@@ -41,6 +41,11 @@ Thumbs.db
 *.log
 *.tmp
 .cache/
+node_modules/
+mobile-dist/
+android/
+ios/
+artifacts/
 
 # --- Test/e2e binary artifacts (prospective only) ---
 # Prevents accidentally committing new test media (video/image/audio) dropped
