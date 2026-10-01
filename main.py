@@ -808,7 +808,8 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         srcs = list(UPLOADS.glob(req.image_id + ".*"))
         if not srcs:
             raise HTTPException(404, "image_id not found")
-        img = srcs[0]
+        img = d / ("scene" + srcs[0].suffix)
+        img.write_bytes(srcs[0].read_bytes())
     else:
         try:
             await asyncio.to_thread(
@@ -969,10 +970,9 @@ def get_video(vid: str):
 def get_preview(vid: str):
     if not re.fullmatch(r"[0-9a-f]{10}", vid):
         raise HTTPException(404)
-    f = WORK / vid / "scene.png"
-    if not f.exists():
-        raise HTTPException(404)
-    return FileResponse(f, media_type="image/png")
+    for f in (WORK / vid).glob("scene.*"):
+        return FileResponse(f)
+    raise HTTPException(404)
 
 
 @app.on_event("startup")
