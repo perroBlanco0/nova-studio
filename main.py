@@ -584,6 +584,10 @@ class VidReq(BaseModel):
     uncensored: bool = False
 
 
+class VidUpd(BaseModel):
+    scene: str
+
+
 @app.exception_handler(HTTPException)
 async def http_exc(request, exc: HTTPException):
     from fastapi.responses import JSONResponse
@@ -753,6 +757,45 @@ async def _run_job(req: VidReq, vid: str, t0: float):
                      "error": {"code": 500, "message": str(e)[:300]}}
 
 
+async def _mux_or_move(src: Path, audio, srt, out: Path):
+    if audio or (srt and srt.exists() and srt.read_text().strip()):
+        await asyncio.to_thread(_mux, src, audio, srt, out)
+    else:
+        src.rename(out)
+
+
+async def _make_clip(engine: str, img: Path, req: VidReq, d: Path, out: Path,
+                     audio, srt, dur: float, dur_anim: float):
+    if engine == "wan":
+        # seed nuevo por llamada: req.seed fija el look del personaje, no el movimiento
+        anim_seed = random.randint(1, 2**31 - 1)
+        try:
+            await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
+                                    d / "anim.mp4", anim_seed, req.uncensored)
+        except Exception:
+            _motion_mark(False)
+            raise
+        if not (d / "anim.mp4").exists():
+            _motion_mark(False)
+            raise RuntimeError("no output produced")
+        _motion_mark(True)
+        await _mux_or_move(d / "anim.mp4", audio, srt, out)
+    elif engine == "fal":
+        await asyncio.to_thread(_animate_fal, img, req.scene_prompt,
+                                d / "anim_fal.mp4", dur_anim)
+        if not (d / "anim_fal.mp4").exists():
+            raise RuntimeError("no output produced")
+        await _mux_or_move(d / "anim_fal.mp4", audio, srt, out)
+    elif engine == "kaggle":
+        await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt, out, dur_anim)
+    elif engine == "vidu":
+        await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
+    elif engine == "static":
+        await asyncio.to_thread(_render, img, audio, srt, out, dur)
+    if not out.exists():
+        raise RuntimeError("no output produced")
+
+
 async def _video_inner(req: VidReq, vid: str, t0: float):
     if not req.seed or req.seed <= 0 or req.seed > 2**31:
         req.seed = random.randint(1, 2**31 - 1)
@@ -765,7 +808,8 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         srcs = list(UPLOADS.glob(req.image_id + ".*"))
         if not srcs:
             raise HTTPException(404, "image_id not found")
-        img = srcs[0]
+        img = d / ("scene" + srcs[0].suffix)
+        img.write_bytes(srcs[0].read_bytes())
     else:
         try:
             await asyncio.to_thread(
@@ -784,83 +828,22 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
 
     out = d / "final.mp4"
 
-    async def _mux_if_needed(src: Path):
-        if audio or (srt and srt.exists() and srt.read_text().strip()):
-            await asyncio.to_thread(_mux, src, audio, srt, out)
-        else:
-            src.rename(out)
-
-    async def _step_wan():
-        # A fresh seed every call (including a duplicate-triggered retry
-        # below) — req.seed keeps the character's look consistent across
-        # videos (by design), but reusing that same fixed seed for the
-        # animation too made every video for a given character come out
-        # with near-identical motion regardless of scene_prompt.
-        anim_seed = random.randint(1, 2**31 - 1)
-        await asyncio.to_thread(_animate_wan, img, req.scene_prompt,
-                                d / "anim.mp4", anim_seed, req.uncensored)
-        src = d / "anim.mp4"
-        if not src.exists():
-            raise RuntimeError("no output produced")
-        await _mux_if_needed(src)
-
-    async def _step_fal():
-        await asyncio.to_thread(_animate_fal, img, req.scene_prompt,
-                                d / "anim_fal.mp4", dur_anim)
-        src = d / "anim_fal.mp4"
-        if not src.exists():
-            raise RuntimeError("no output produced")
-        await _mux_if_needed(src)
-
-    async def _step_kaggle():
-        await asyncio.to_thread(_animate_kaggle, img, req.scene_prompt, out, dur_anim)
-        if not out.exists():
-            raise RuntimeError("no output produced")
-
-    async def _step_vidu():
-        await asyncio.to_thread(_animate_vidu, img, req.scene_prompt, out)
-        if not out.exists():
-            raise RuntimeError("no output produced")
-
-    async def _step_static():
-        await asyncio.to_thread(_render, img, audio, srt, out, dur)
-
-    # Fallback chain, guaranteed by construction (a single loop, not scattered
-    # per-step conditionals): an explicit engine tries only itself and raises
-    # if it fails — the caller asked for that engine specifically, so silently
-    # trying another would ignore their request. "auto" tries every real
-    # AI motion engine in order (wan -> kaggle -> vidu) and raises if all of
-    # them fail. `static` (camera pan over the still image, no AI movement)
-    # is intentionally NOT part of the "auto" chain — it isn't real motion,
-    # so "auto" must never silently downgrade to it; it's only used when the
-    # caller explicitly asks for engine="static".
-    if req.engine == "wan":
-        chain = [("wan", _step_wan)]
-    elif req.engine == "fal":
-        chain = [("fal", _step_fal)]
-    elif req.engine == "static":
-        chain = [("static", _step_static)]
+    if req.engine == "auto":
+        engines = ["wan", "kaggle", "vidu"] if KAGGLE_URL else ["wan", "vidu"]
     else:
-        chain = [("wan", _step_wan)]
-        if KAGGLE_URL:
-            chain.append(("kaggle", _step_kaggle))
-        chain.append(("vidu", _step_vidu))
+        engines = [req.engine]
 
     anim_err = None
     used_engine = None
     last_exc = None
-    for name, step in chain:
+    for name in engines:
         try:
-            await step()
+            await _make_clip(name, img, req, d, out, audio, srt, dur, dur_anim)
             used_engine = name
-            if name == "wan":
-                _motion_mark(True)
             last_exc = None
             break
         except Exception as e:
             last_exc = e
-            if name == "wan":
-                _motion_mark(False)
             anim_err = (anim_err + " " if anim_err else "") + f"{name}: {e}"
 
     if used_engine is None:
@@ -872,10 +855,9 @@ async def _video_inner(req: VidReq, vid: str, t0: float):
         global _LAST_MOTION_HASH
         h = hashlib.sha256(out.read_bytes()).hexdigest()
         if h == _LAST_MOTION_HASH:
-            retry_step = dict(chain)[used_engine]
             out.unlink(missing_ok=True)
             try:
-                await retry_step()
+                await _make_clip(used_engine, img, req, d, out, audio, srt, dur, dur_anim)
                 h = hashlib.sha256(out.read_bytes()).hexdigest()
             except Exception as e:
                 anim_err = (anim_err + " " if anim_err else "") + f"{used_engine}: duplicate-retry failed: {e}"
@@ -924,7 +906,6 @@ def request_log():
 
 @app.get("/api/feed")
 def feed():
-    _db_migrate()
     items = [{"video_id": i["video_id"],
               "url": f"/api/video/{i['video_id']}/final.mp4",
               "scene": i.get("scene", ""),
@@ -933,8 +914,20 @@ def feed():
     return {"ok": True, "videos": items}
 
 
+@app.get("/api/video/{vid}")
+def get_video_meta(vid: str):
+    if not re.fullmatch(r"[0-9a-f]{10}", vid):
+        raise HTTPException(404, "video not found")
+    for i in _db_list(500):
+        if i["video_id"] == vid:
+            return {"ok": True, "video": i}
+    raise HTTPException(404, "video not found")
+
+
 @app.delete("/api/video/{vid}")
 async def del_video(vid: str):
+    if not re.fullmatch(r"[0-9a-f]{10}", vid):
+        raise HTTPException(404, "video not found")
     def _do():
         try:
             _supa_req("DELETE", f"object/videos/{vid}.mp4")
@@ -948,10 +941,13 @@ async def del_video(vid: str):
 
 
 @app.put("/api/video/{vid}")
-async def upd_video(vid: str, req: Request):
-    body = await req.json()
+async def upd_video(vid: str, req: VidUpd):
+    if not re.fullmatch(r"[0-9a-f]{10}", vid):
+        raise HTTPException(404, "video not found")
+    if not req.scene.strip():
+        raise HTTPException(400, "scene is required")
     rows = await asyncio.to_thread(_rpc, "videos_update",
-                                   {"p_id": vid, "p_scene": body.get("scene")})
+                                   {"p_id": vid, "p_scene": req.scene[:140]})
     if not rows:
         raise HTTPException(404, "video not found")
     return {"ok": True, "video": rows[0]}
@@ -974,10 +970,14 @@ def get_video(vid: str):
 def get_preview(vid: str):
     if not re.fullmatch(r"[0-9a-f]{10}", vid):
         raise HTTPException(404)
-    f = WORK / vid / "scene.png"
-    if not f.exists():
-        raise HTTPException(404)
-    return FileResponse(f, media_type="image/png")
+    for f in (WORK / vid).glob("scene.*"):
+        return FileResponse(f)
+    raise HTTPException(404)
+
+
+@app.on_event("startup")
+async def migrate_manifest_once():
+    asyncio.create_task(asyncio.to_thread(_db_migrate))
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
