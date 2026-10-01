@@ -354,7 +354,7 @@ async function genVid(b){
       }
       b.disabled=false; b.textContent='▶ Crear video'; return; }
     spin.style.display='none';
-    document.getElementById('vstat').textContent=r.fallback?'Salió con movimiento de cámara':'';
+    document.getElementById('vstat').textContent=r.engine_used==='static'?'Salió con movimiento de cámara':'';
     const engUsed=r.engine_used;
     document.getElementById('vengine').innerHTML=engUsed
       ? '<div class="engine-badge">⚙ Generado con: '+(ENGINE_LABELS[engUsed]||engUsed)+'</div>' : '';
