@@ -1,6 +1,7 @@
 import {copyFile, mkdir, stat, writeFile} from 'node:fs/promises';
-import {basename, join} from 'node:path';
+import {join, relative, sep} from 'node:path';
 import type {VideoScript} from '../generator/schema.js';
+import type {VisualStyle} from '../generator/style.js';
 
 export type SceneAsset = {
   sceneId: string;
@@ -9,6 +10,11 @@ export type SceneAsset = {
 };
 
 const PLACEHOLDERS = ['aurora.svg', 'sunrise.svg', 'grid.svg'] as const;
+const LANDSCAPE_PLACEHOLDERS = {
+  anime: 'landscape-anime.png',
+  realistic: 'landscape-realistic.png',
+  fantasy: 'landscape-fantasy.png',
+} as const;
 
 const hashSeed = (value: string): number => {
   let hash = 2166136261;
@@ -59,11 +65,15 @@ const hasCachedImage = async (path: string): Promise<boolean> => {
   }
 };
 
+const toAssetPath = (assetsDirectory: string, path: string): string =>
+  relative(assetsDirectory, path).split(sep).join('/');
+
 export const fetchSceneImages = async (
   script: VideoScript,
   runDirectory: string,
   assetsDirectory: string,
   offline: boolean,
+  style: VisualStyle = 'general',
 ): Promise<SceneAsset[]> => {
   await mkdir(runDirectory, {recursive: true});
   const results: SceneAsset[] = [];
@@ -79,7 +89,7 @@ export const fetchSceneImages = async (
     if (await hasCachedImage(remoteDestination)) {
       results.push({
         sceneId: scene.sceneId,
-        assetPath: `generated/${basename(runDirectory)}/${remoteName}`,
+        assetPath: toAssetPath(assetsDirectory, remoteDestination),
         source: 'pollinations',
       });
       continue;
@@ -90,7 +100,7 @@ export const fetchSceneImages = async (
         await downloadImage(scene.imagePrompt, remoteDestination);
         results.push({
           sceneId: scene.sceneId,
-          assetPath: `generated/${basename(runDirectory)}/${remoteName}`,
+          assetPath: toAssetPath(assetsDirectory, remoteDestination),
           source: 'pollinations',
         });
         continue;
@@ -100,15 +110,24 @@ export const fetchSceneImages = async (
       }
     }
 
-    const placeholder = PLACEHOLDERS[index % PLACEHOLDERS.length] ?? 'aurora.svg';
-    const localName = `${scene.sceneId}.svg`;
+    const landscapePlaceholder =
+      style === 'general' ? null : LANDSCAPE_PLACEHOLDERS[style];
+    const placeholder =
+      landscapePlaceholder ??
+      PLACEHOLDERS[index % PLACEHOLDERS.length] ??
+      'aurora.svg';
+    const extension = placeholder.endsWith('.png') ? 'png' : 'svg';
+    const localName = `${scene.sceneId}.${extension}`;
     await copyFile(
       join(assetsDirectory, 'placeholders', placeholder),
       join(runDirectory, localName),
     );
     results.push({
       sceneId: scene.sceneId,
-      assetPath: `generated/${basename(runDirectory)}/${localName}`,
+      assetPath: toAssetPath(
+        assetsDirectory,
+        join(runDirectory, localName),
+      ),
       source: 'placeholder',
     });
   }

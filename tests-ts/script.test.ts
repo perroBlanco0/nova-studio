@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {generateHeuristicScript} from '../src/generator/script.js';
 import {validateVideoScript} from '../src/generator/schema.js';
+import {applyVisualStyle} from '../src/generator/style.js';
 
 describe('video script', () => {
   it('generates a valid local script without credentials', () => {
@@ -30,5 +31,20 @@ describe('video script', () => {
         ],
       }),
     ).toThrow();
+  });
+
+  it('converts every scene into a styled landscape prompt', () => {
+    const script = applyVisualStyle(
+      generateHeuristicScript('Un valle al amanecer'),
+      'anime',
+    );
+
+    expect(
+      script.scenes.every(
+        (scene) =>
+          scene.imagePrompt.includes('anime landscape') &&
+          scene.cameraMotion !== 'shake_impact',
+      ),
+    ).toBe(true);
   });
 });

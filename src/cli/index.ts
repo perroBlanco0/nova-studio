@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {mkdir, writeFile} from 'node:fs/promises';
-import {basename, dirname, resolve} from 'node:path';
+import {basename, dirname, extname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {synthesizeNarration} from '../audio/tts.js';
 import {fetchSceneImages} from '../assets/images.js';
@@ -8,6 +8,11 @@ import {
   generateScript,
   type ScriptProvider,
 } from '../generator/script.js';
+import {
+  applyVisualStyle,
+  LANDSCAPE_STYLES,
+  type VisualStyle,
+} from '../generator/style.js';
 import {createVideoProject} from '../render/project.js';
 import {renderVideo} from '../render/render.js';
 
@@ -18,6 +23,7 @@ type CliOptions = {
   voice: string;
   rate: string;
   offline: boolean;
+  style: VisualStyle | 'all';
 };
 
 const HELP = `NOVA Studio — generador gratuito de videos verticales
@@ -29,6 +35,7 @@ Opciones:
   --topic       Tema del video
   --output      MP4 de salida (default: ./output/video.mp4)
   --provider    heuristic | groq | gemini (default: heuristic)
+  --style       general | anime | realistic | fantasy | all (default: general)
   --voice       Voz de Edge-TTS (default: es-MX-DaliaNeural)
   --rate        Velocidad Edge-TTS, por ejemplo +10% (default: +0%)
   --offline     No intenta usar Pollinations ni Edge-TTS
@@ -51,6 +58,7 @@ export const parseCliOptions = (args: string[]): CliOptions => {
     voice: 'es-MX-DaliaNeural',
     rate: '+0%',
     offline: false,
+    style: 'general',
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -92,6 +100,15 @@ export const parseCliOptions = (args: string[]): CliOptions => {
       index += 1;
       continue;
     }
+    if (argument === '--style') {
+      const style = valueAfter(args, index, argument);
+      if (!['general', ...LANDSCAPE_STYLES, 'all'].includes(style)) {
+        throw new Error(`Estilo inválido: ${style}`);
+      }
+      options.style = style as VisualStyle | 'all';
+      index += 1;
+      continue;
+    }
     throw new Error(`Opción desconocida: ${argument}`);
   }
   return options;
@@ -113,20 +130,36 @@ const stableId = (value: string): string => {
   return `${slug || 'video'}-${(hash >>> 0).toString(16)}`;
 };
 
+const outputForStyle = (
+  output: string,
+  style: VisualStyle,
+  multiple: boolean,
+): string => {
+  if (!multiple) {
+    return output;
+  }
+  const existingExtension = extname(output);
+  const extension = existingExtension || '.mp4';
+  const base = existingExtension
+    ? output.slice(0, -existingExtension.length)
+    : output;
+  return `${base}-${style}${extension}`;
+};
+
 export const run = async (options: CliOptions): Promise<void> => {
   const sourceDirectory = dirname(fileURLToPath(import.meta.url));
   const rootDirectory = resolve(sourceDirectory, '../..');
   const assetsDirectory = resolve(rootDirectory, 'assets');
-  const runDirectory = resolve(
+  const baseRunDirectory = resolve(
     assetsDirectory,
     'generated',
     stableId(options.topic),
   );
-  await mkdir(runDirectory, {recursive: true});
+  await mkdir(baseRunDirectory, {recursive: true});
   await mkdir(dirname(options.output), {recursive: true});
 
-  console.log('1/4 Generando guion...');
-  const script = await generateScript(options.topic, {
+  console.log('1/4 Generando guion y narración...');
+  const baseScript = await generateScript(options.topic, {
     provider: options.provider,
     ...(process.env.GROQ_API_KEY
       ? {groqApiKey: process.env.GROQ_API_KEY}
@@ -135,69 +168,81 @@ export const run = async (options: CliOptions): Promise<void> => {
       ? {geminiApiKey: process.env.GEMINI_API_KEY}
       : {}),
   });
-  await writeFile(
-    resolve(runDirectory, 'script.json'),
-    `${JSON.stringify(script, null, 2)}\n`,
-  );
-
-  console.log('2/4 Preparando imágenes...');
-  const sceneAssets = await fetchSceneImages(
-    script,
-    runDirectory,
-    assetsDirectory,
-    options.offline,
-  );
-
-  console.log('3/4 Sintetizando narración...');
   const expectedDurationMs = Math.round(
-    script.scenes.reduce(
+    baseScript.scenes.reduce(
       (total, scene) => total + scene.durationInSeconds,
       0,
     ) * 1000,
   );
   const narration = await synthesizeNarration({
-    text: script.scenes.map((scene) => scene.textToSpeak).join(' '),
-    outputPath: resolve(runDirectory, 'narrator.mp3'),
+    text: baseScript.scenes.map((scene) => scene.textToSpeak).join(' '),
+    outputPath: resolve(baseRunDirectory, 'narrator.mp3'),
     voice: options.voice,
     rate: options.rate,
     targetDurationMs: expectedDurationMs,
     offline: options.offline,
   });
-  const project = createVideoProject(
-    script,
-    sceneAssets,
-    narration,
-    assetsDirectory,
-  );
 
-  console.log('4/4 Renderizando con Remotion + FFmpeg...');
-  await renderVideo({
-    project,
-    outputPath: options.output,
-    assetsDirectory,
-    entryPoint: resolve(rootDirectory, 'src/remotion/index.ts'),
-    onProgress: (percentage) => process.stdout.write(`\rRender ${percentage}%`),
-  });
-  process.stdout.write('\n');
+  const styles: VisualStyle[] =
+    options.style === 'all' ? [...LANDSCAPE_STYLES] : [options.style];
 
-  const manifestPath = options.output.replace(/\.mp4$/i, '.json');
-  await writeFile(
-    manifestPath,
-    `${JSON.stringify(
-      {
-        title: script.title,
-        output: basename(options.output),
-        provider: options.provider,
-        narrationEngine: narration.engine,
-        offline: options.offline,
-        project,
-        sceneAssets,
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  console.log(`Video listo: ${options.output}`);
+  for (const style of styles) {
+    const script = applyVisualStyle(baseScript, style);
+    const runDirectory = resolve(baseRunDirectory, style);
+    const output = outputForStyle(options.output, style, styles.length > 1);
+    await mkdir(runDirectory, {recursive: true});
+    await writeFile(
+      resolve(runDirectory, 'script.json'),
+      `${JSON.stringify(script, null, 2)}\n`,
+    );
+
+    console.log(`2/4 Preparando imágenes (${style})...`);
+    const sceneAssets = await fetchSceneImages(
+      script,
+      runDirectory,
+      assetsDirectory,
+      options.offline,
+      style,
+    );
+    const project = createVideoProject(
+      script,
+      sceneAssets,
+      narration,
+      assetsDirectory,
+    );
+
+    console.log(`3/4 Preparando composición (${style})...`);
+    console.log(`4/4 Renderizando (${style})...`);
+    await renderVideo({
+      project,
+      outputPath: output,
+      assetsDirectory,
+      entryPoint: resolve(rootDirectory, 'src/remotion/index.ts'),
+      onProgress: (percentage) =>
+        process.stdout.write(`\rRender ${percentage}%`),
+    });
+    process.stdout.write('\n');
+
+    const manifestPath = output.replace(/\.mp4$/i, '.json');
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          title: script.title,
+          output: basename(output),
+          style,
+          provider: options.provider,
+          narrationEngine: narration.engine,
+          offline: options.offline,
+          project,
+          sceneAssets,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    console.log(`Video listo: ${output}`);
+  }
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -34,6 +34,7 @@ npm run generate -- --topic "Los 3 errores más comunes al entrenar calistenia"
 ```sh
 npm run generate -- \
   --topic "Curiosidades impactantes del espacio" \
+  --style anime \
   --output ./output/espacio.mp4 \
   --voice es-MX-DaliaNeural \
   --rate +5%
@@ -44,6 +45,7 @@ npm run generate -- \
 | `--topic` | Curiosidades del espacio | Tema del guion |
 | `--output` | `./output/video.mp4` | Ruta del MP4 |
 | `--provider` | `heuristic` | `heuristic`, `groq` o `gemini` |
+| `--style` | `general` | `general`, `anime`, `realistic`, `fantasy` o `all` |
 | `--voice` | `es-MX-DaliaNeural` | Voz compatible con Edge-TTS |
 | `--rate` | `+0%` | Velocidad de voz |
 | `--offline` | desactivado | Evita todas las llamadas de red |
@@ -56,6 +58,19 @@ npm run generate -- --offline --topic "Tres hábitos para empezar el día"
 ```
 
 Cada MP4 incluye un manifiesto JSON con el guion, escenas, assets utilizados, timings y motor de narración.
+
+Para generar automáticamente los tres estilos de paisaje:
+
+```sh
+npm run generate -- \
+  --topic "Un valle atravesado por cascadas" \
+  --style all \
+  --output ./output/paisaje.mp4
+```
+
+El comando crea `paisaje-anime.mp4`, `paisaje-realistic.mp4` y
+`paisaje-fantasy.mp4`. Los presets fuerzan paisajes sin personas y usan
+fondos locales del mismo estilo si Pollinations no responde.
 
 ## Servicios gratuitos y fallbacks
 
@@ -119,7 +134,7 @@ assets/
   audio/         Música y SFX procedurales
 ```
 
-La composición aplica movimiento Ken Burns, subtítulos activos de alto contraste, barra de progreso, voz, música con ducking y efectos al comenzar escenas.
+La composición aplica paneo lateral suave sin acercamiento, subtítulos activos de alto contraste, barra de progreso, voz, música con ducking y efectos al comenzar escenas.
 
 ## Desarrollo y pruebas
 
