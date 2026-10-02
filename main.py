@@ -551,11 +551,11 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
 def _render_landscape(img: Path, audio: Path | None, srt: Path | None,
                       out: Path, dur: float):
     frames = max(1, int(dur * 30))
-    vf = ("scale=1220:2169:force_original_aspect_ratio=increase,"
-          "crop=1220:2169,"
+    vf = ("scale=820:1458:force_original_aspect_ratio=increase,"
+          "crop=820:1458,"
           "zoompan=z=1:"
           "x='(iw-ow)*on/%d':y='(ih-oh)/2':"
-          "d=%d:s=1080x1920:fps=30" % (max(1, frames - 1), frames))
+          "d=%d:s=720x1280:fps=30" % (max(1, frames - 1), frames))
     if srt and srt.exists() and srt.read_text().strip():
         vf += _sub_filter(srt)
 
