@@ -13,6 +13,8 @@ external calls (_animate_*, _render, _dl_poll, _tts, _store_video,
 _vreq_log) are mocked; no real network/ffmpeg/playwright call is made.
 """
 import asyncio
+import threading
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -186,6 +188,74 @@ def test_pollinations_without_token_does_not_repeat_same_request(monkeypatch, tm
         main._dl_poll("paisaje", 123, tmp_path / "scene.png", retries=1, timeout=45)
 
     download.assert_called_once()
+
+
+def test_ffmpeg_runner_limits_memory_threads(monkeypatch):
+    run_process = Mock()
+    monkeypatch.setattr(main.subprocess, "run", run_process)
+
+    main._run_ffmpeg(["ffmpeg", "-y", "-i", "input.mp4", "output.mp4"], check=False)
+
+    command = run_process.call_args.args[0]
+    assert command[:7] == [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-filter_threads", "1",
+        "-filter_complex_threads",
+    ]
+    assert command[-3:] == ["-threads", "1", "output.mp4"]
+    assert run_process.call_args.kwargs == {
+        "check": False,
+        "capture_output": True,
+    }
+
+
+def test_landscape_render_uses_low_memory_encoder(monkeypatch, tmp_path):
+    run_ffmpeg = Mock()
+    monkeypatch.setattr(main, "_run_ffmpeg", run_ffmpeg)
+
+    main._render_landscape(
+        main.LANDSCAPE_FALLBACKS["anime"],
+        None,
+        None,
+        tmp_path / "output.mp4",
+        4.0,
+    )
+
+    command = run_ffmpeg.call_args.args[0]
+    preset_index = command.index("-preset")
+    assert command[preset_index + 1] == "ultrafast"
+
+
+def test_ffmpeg_runner_serializes_parallel_renders(monkeypatch):
+    active = 0
+    peak = 0
+    state_lock = threading.Lock()
+
+    def run_process(*args, **kwargs):
+        nonlocal active, peak
+        with state_lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.03)
+        with state_lock:
+            active -= 1
+
+    monkeypatch.setattr(main.subprocess, "run", run_process)
+    workers = [
+        threading.Thread(
+            target=main._run_ffmpeg,
+            args=(["ffmpeg", "-y", "-i", "input.mp4", f"output-{index}.mp4"],),
+        )
+        for index in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert peak == 1
 
 
 def test_landscape_prompt_forbids_people_and_text():

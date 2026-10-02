@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -525,6 +526,26 @@ def _motion_mark(ok: bool):
 
 SUB_STYLE = ("FontName=DejaVu Sans,FontSize=14,Bold=1,PrimaryColour=&H00FFFFFF,"
              "OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=340")
+_FFMPEG_LOCK = threading.Lock()
+
+
+def _run_ffmpeg(cmd: list[str], check: bool = True):
+    low_memory_cmd = [
+        cmd[0],
+        "-hide_banner",
+        "-loglevel", "error",
+        "-filter_threads", "1",
+        "-filter_complex_threads", "1",
+        *cmd[1:-1],
+        "-threads", "1",
+        cmd[-1],
+    ]
+    with _FFMPEG_LOCK:
+        return subprocess.run(
+            low_memory_cmd,
+            check=check,
+            capture_output=True,
+        )
 
 
 def _sub_filter(srt: Path) -> str:
@@ -544,15 +565,15 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
     if audio:
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(img), "-i", str(audio),
                "-filter_complex", vf, "-t", str(dur), "-c:v", "libx264",
-               "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+               "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-shortest", str(out)]
     else:
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(img),
                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                "-filter_complex", vf, "-t", str(dur), "-c:v", "libx264",
-               "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+               "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-shortest", str(out)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run_ffmpeg(cmd)
 
 
 def _render_landscape(img: Path, audio: Path | None, srt: Path | None,
@@ -593,9 +614,9 @@ def _render_landscape(img: Path, audio: Path | None, srt: Path | None,
         filters.append("[1:a]anull[a]")
 
     cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
-            "-t", str(dur), "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+            "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run_ffmpeg(cmd)
 
 
 def _mux(clip: Path, audio: Path | None, srt: Path | None, out: Path):
@@ -610,9 +631,9 @@ def _mux(clip: Path, audio: Path | None, srt: Path | None, out: Path):
         cmd += ["-map", "1:a", "-c:a", "aac", "-shortest"]
     else:
         cmd += ["-map", "0:a?", "-c:a", "aac"]
-    cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+    cmd += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
             "-pix_fmt", "yuv420p", str(out)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run_ffmpeg(cmd)
 
 
 # ============================================================
@@ -752,9 +773,11 @@ async def upload(request: Request):
     src = UPLOADS / f"{uid}.src"
     src.write_bytes(data)
     dst = UPLOADS / f"{uid}.jpg"
-    r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
-                        "-vf", "scale='min(1080,iw)':-2", "-q:v", "3", str(dst)],
-                       capture_output=True)
+    r = _run_ffmpeg(
+        ["ffmpeg", "-y", "-i", str(src),
+         "-vf", "scale='min(1080,iw)':-2", "-q:v", "3", str(dst)],
+        check=False,
+    )
     if r.returncode != 0 or not dst.exists():
         dst = UPLOADS / f"{uid}{Path(f.filename).suffix or '.png'}"
         src.rename(dst)
