@@ -1,7 +1,7 @@
 import {z} from 'zod';
 
 export const CameraMotionSchema = z.enum([
-  'zoom_in',
+  'static',
   'pan_slow',
   'shake_impact',
 ]);

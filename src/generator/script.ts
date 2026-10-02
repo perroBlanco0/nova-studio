@@ -9,7 +9,7 @@ export type GenerateScriptOptions = {
 };
 
 const CAMERA_MOTIONS: readonly CameraMotion[] = [
-  'zoom_in',
+  'static',
   'pan_slow',
   'shake_impact',
 ];
@@ -58,7 +58,7 @@ export const generateHeuristicScript = (topic: string): VideoScript => {
 
 const SYSTEM_PROMPT = `Eres un guionista de videos verticales breves en español.
 Devuelve solamente JSON válido con esta forma:
-{"title":"...","scenes":[{"sceneId":"scene-1","textToSpeak":"...","imagePrompt":"...","cameraMotion":"zoom_in|pan_slow|shake_impact","durationInSeconds":4,"sfxTrigger":"impact|swoosh|riser"}]}
+{"title":"...","scenes":[{"sceneId":"scene-1","textToSpeak":"...","imagePrompt":"...","cameraMotion":"static|pan_slow|shake_impact","durationInSeconds":4,"sfxTrigger":"impact|swoosh|riser"}]}
 Usa 3 a 6 escenas, frases naturales para narración, prompts visuales sin texto y duraciones entre 2 y 12 segundos.`;
 
 const extractJson = (text: string): unknown => {

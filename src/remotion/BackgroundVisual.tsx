@@ -23,22 +23,15 @@ export const BackgroundVisual = ({
     {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.ease},
   );
 
-  const zoom =
-    scene.cameraMotion === 'zoom_in'
-      ? interpolate(progress, [0, 1], [1.04, 1.16])
-      : 1.1;
   const panX =
     scene.cameraMotion === 'pan_slow'
-      ? interpolate(progress, [0, 1], [-45, 45])
+      ? interpolate(progress, [0, 1], [-28, 28])
       : 0;
   const shake =
     scene.cameraMotion === 'shake_impact' && frame < 14
       ? Math.sin(frame * 2.8) * (1 - frame / 14) * 18
       : 0;
-  const scale =
-    scene.cameraMotion === 'shake_impact'
-      ? interpolate(progress, [0, 1], [1.1, 1.14])
-      : zoom;
+  const scale = scene.cameraMotion === 'static' ? 1 : 1.06;
 
   return (
     <AbsoluteFill style={{overflow: 'hidden', backgroundColor: '#05070d'}}>

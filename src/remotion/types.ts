@@ -38,7 +38,7 @@ export const DEFAULT_PROJECT: VideoProject = {
       sceneId: 'preview',
       textToSpeak: 'Generador de video gratuito',
       imagePrompt: 'abstract aurora',
-      cameraMotion: 'zoom_in',
+      cameraMotion: 'static',
       durationInSeconds: 3,
       sfxTrigger: null,
       assetPath: 'placeholders/aurora.svg',
