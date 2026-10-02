@@ -174,11 +174,18 @@ def _poll_url(prompt: str, seed: int, token: bool = True, negative: str = "") ->
     return u + ("&token=" + POLL_TOKEN if token and POLL_TOKEN else "")
 
 
-def _dl_poll(prompt: str, seed: int, out: Path, negative: str = ""):
+def _dl_poll(prompt: str, seed: int, out: Path, negative: str = "",
+             retries: int = 6, timeout: int = 180):
+    if not POLL_TOKEN:
+        _dl(_poll_url(prompt, seed, token=False, negative=negative), out,
+            retries=retries, timeout=timeout)
+        return
     try:
-        _dl(_poll_url(prompt, seed, negative=negative), out)
+        _dl(_poll_url(prompt, seed, negative=negative), out,
+            retries=retries, timeout=timeout)
     except Exception:
-        _dl(_poll_url(prompt, seed, token=False, negative=negative), out)
+        _dl(_poll_url(prompt, seed, token=False, negative=negative), out,
+            retries=retries, timeout=timeout)
 
 
 def _char_image_prompt(description: str) -> str:
@@ -231,12 +238,12 @@ def _scene_image_negative() -> str:
     return urllib.parse.quote(NEG_SCENE_IMAGE)
 
 
-def _dl(url: str, out: Path, retries: int = 6):
+def _dl(url: str, out: Path, retries: int = 6, timeout: int = 180):
     last = None
     for i in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=180) as r, open(out, "wb") as f:
+            with urllib.request.urlopen(req, timeout=timeout) as r, open(out, "wb") as f:
                 f.write(r.read())
             return
         except Exception as e:
@@ -889,6 +896,8 @@ async def _landscape_inner(req: LandscapeReq, vid: str):
             seed,
             img,
             _scene_image_negative(),
+            1,
+            45,
         )
     except Exception:
         fallback = LANDSCAPE_FALLBACKS[req.style]

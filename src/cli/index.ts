@@ -245,8 +245,12 @@ export const run = async (options: CliOptions): Promise<void> => {
   }
 };
 
+const main = async (): Promise<void> => {
+  await run(parseCliOptions(process.argv.slice(2)));
+};
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  run(parseCliOptions(process.argv.slice(2))).catch((error: unknown) => {
+  main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${message}`);
     process.exitCode = 1;

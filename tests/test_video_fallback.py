@@ -173,7 +173,19 @@ def test_landscape_uses_local_style_fallback(work_dir, no_network, monkeypatch):
     assert resp["ok"] is True
     assert resp["engine_used"] == "landscape-fantasy"
     assert resp["image_source"] == "local"
+    assert main._dl_poll.call_args.args[-2:] == (1, 45)
     main._render_landscape.assert_called_once()
+
+
+def test_pollinations_without_token_does_not_repeat_same_request(monkeypatch, tmp_path):
+    download = Mock(side_effect=RuntimeError("pollinations unavailable"))
+    monkeypatch.setattr(main, "POLL_TOKEN", "")
+    monkeypatch.setattr(main, "_dl", download)
+
+    with pytest.raises(RuntimeError):
+        main._dl_poll("paisaje", 123, tmp_path / "scene.png", retries=1, timeout=45)
+
+    download.assert_called_once()
 
 
 def test_landscape_prompt_forbids_people_and_text():
