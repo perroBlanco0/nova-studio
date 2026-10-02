@@ -7,6 +7,11 @@ NOVA Studio incluye dos flujos:
 
 El generador produce MP4 de **1080x1920**, **30 fps** y no requiere servicios pagos, GPU ni tarjeta de crédito.
 
+La interfaz web también incluye **Paisajes** como módulo adicional. Permite
+crear un clip anime, realista o fantástico sin personaje, con paneo lateral
+sin zoom, música incluida, voz opcional y fallback local si Pollinations no
+responde.
+
 ## Inicio rápido
 
 Requisitos:

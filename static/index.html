@@ -50,6 +50,10 @@
   .chars div.sel{border-color:var(--acc);background:#241019}
   .motion-pill{display:none;align-items:center;gap:6px;margin:-16px 0 20px;padding:7px 16px;border-radius:999px;background:linear-gradient(135deg,#065f46,#0e7490);border:1px solid #25f4ee55;color:#a7f3d0;font-size:12px;font-weight:600;letter-spacing:.3px;box-shadow:0 0 18px #25f4ee22;animation:fadein .5s ease}
   .engine-badge{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 14px;border-radius:999px;background:#1c1c28;border:1px solid var(--acc2);color:var(--acc2);font-size:12px;font-weight:700;letter-spacing:.3px;animation:fadein .4s ease}
+  .landscape-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .landscape-head .ic{width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#0e7490,#4c1d95);display:flex;align-items:center;justify-content:center;font-size:23px;flex:none}
+  .landscape-head h2{margin:0}
+  .landscape-head .hint{margin:3px 0 0}
   .back{margin-top:14px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px;width:auto;padding:4px}
   .back:hover{color:var(--txt)}
   .row{display:flex;gap:12px}.row>*{flex:1}
@@ -95,7 +99,7 @@
 <div class="sub">Crea tu personaje → describe tu video → descárgalo</div>
 <div class="motion-pill" id="motionPill">⚡ Animación con movimiento disponible</div>
 
-<div class="steps">
+<div class="steps" id="mainSteps">
   <div class="st on" id="s1"><div class="dot">1</div><div class="lb">PERSONAJE</div></div>
   <div class="ln"></div>
   <div class="st" id="s2"><div class="dot">2</div><div class="lb">ESCENA</div></div>
@@ -161,6 +165,48 @@
   <button class="back" onclick="go(2)">← hacer otro video</button>
 </div>
 
+<div class="card" id="landscapeCard" style="display:none">
+  <div class="landscape-head">
+    <div class="ic">🏞</div>
+    <div>
+      <h2>Generador de paisajes</h2>
+      <div class="hint">Un módulo aparte: no usa personajes ni cambia el creador principal</div>
+    </div>
+  </div>
+  <label>Describe el paisaje</label>
+  <textarea id="ltopic" placeholder="Ej: un valle atravesado por cascadas al amanecer"></textarea>
+  <div class="row">
+    <div>
+      <label>Estilo</label>
+      <select id="lstyle">
+        <option value="anime">Anime</option>
+        <option value="realistic">Realista</option>
+        <option value="fantasy">Fantástico</option>
+      </select>
+    </div>
+    <div>
+      <label>Duración</label>
+      <select id="ldur">
+        <option value="6">6 segundos</option>
+        <option value="10" selected>10 segundos</option>
+        <option value="15">15 segundos</option>
+      </select>
+    </div>
+  </div>
+  <label>Narración (opcional)</label>
+  <textarea id="ldialog" placeholder="Déjalo vacío para usar solo música"></textarea>
+  <label>Voz</label>
+  <select id="lvoice">
+    <option value="none">Sin voz</option>
+    <option value="female">Mujer</option>
+    <option value="male">Hombre</option>
+  </select>
+  <button class="btn" id="lbtn" onclick="genLandscape(this)">✦ Crear paisaje</button>
+  <div class="spin" id="lspin"></div>
+  <div id="lengine"></div>
+  <div class="preview" id="lprev"></div>
+</div>
+
 <div class="feedwrap" id="feedwrap">
   <div class="ftitle">Mis videos</div>
   <div class="feed" id="feed"></div>
@@ -169,6 +215,7 @@
 <div class="bnav">
   <a id="nv1" class="on" onclick="navGo(1)"><span class="ic">🏠</span>Inicio</a>
   <a id="nv2" onclick="navGo(2)"><span class="ic">➕</span>Crear</a>
+  <a id="nv4" onclick="navGo(4)"><span class="ic">🏞</span>Paisajes</a>
   <a id="nv3" onclick="navGo(3)"><span class="ic">▶</span>Mis videos</a>
 </div>
 
@@ -200,11 +247,16 @@ loadSaved();
 let feedIO=null;
 function navGo(n){
   if(n===1){ location.reload(); return; }
-  ['nv1','nv2','nv3'].forEach((id,i)=>document.getElementById(id).classList.toggle('on',i+1===n));
+  [1,2,3,4].forEach(i=>document.getElementById('nv'+i).classList.toggle('on',i===n));
   document.getElementById('feedwrap').style.display=n===3?'block':'none';
+  document.getElementById('landscapeCard').style.display=n===4?'block':'none';
   if(n!==3) document.querySelectorAll('#feed video').forEach(v=>v.pause());
   if(n===2) go(2);
   if(n===3) loadFeed(true);
+  if(n===4){
+    document.getElementById('mainSteps').style.display='none';
+    for(let i=1;i<=3;i++) document.getElementById('step'+i).style.display='none';
+  }
 }
 let feedData=[];
 async function loadFeed(force){
@@ -234,11 +286,13 @@ async function loadOptions(){
   try{
     const r=await (await fetch('/api/options')).json();
     if(!r.ok) throw 0;
-    const voiceSel=document.getElementById('voice'), durSel=document.getElementById('dur'), engineSel=document.getElementById('engine');
+    const voiceSel=document.getElementById('voice'), landscapeVoice=document.getElementById('lvoice'), durSel=document.getElementById('dur'), engineSel=document.getElementById('engine');
     const prevVoice=voiceSel.value, prevDur=durSel.value, prevEngine=engineSel.value;
     if(Array.isArray(r.voices)&&r.voices.length){
       voiceSel.innerHTML=r.voices.map(v=>'<option value="'+v.id+'">'+v.label+'</option>').join('');
       if([...voiceSel.options].some(o=>o.value===prevVoice)) voiceSel.value=prevVoice;
+      landscapeVoice.innerHTML=r.voices.map(v=>'<option value="'+v.id+'">'+v.label+'</option>').join('');
+      landscapeVoice.value='none';
     }
     if(Array.isArray(r.durations)&&r.durations.length){
       durSel.innerHTML=r.durations.map(d=>'<option value="'+d+'">'+d+'s</option>').join('');
@@ -252,7 +306,8 @@ async function loadOptions(){
   }catch(e){ /* sin conexión: se mantienen las opciones fijas del HTML */ }
 }
 loadOptions();
-function go(n){ for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
+function go(n){ document.getElementById('landscapeCard').style.display='none'; document.getElementById('mainSteps').style.display='flex';
+  for(let i=1;i<=3;i++){ document.getElementById('step'+i).style.display=i===n?'block':'none';
   const s=document.getElementById('s'+i); s.className='st '+(i<n?'done':i===n?'on':''); } }
 async function genChar(b){
   charDesc=document.getElementById('cdesc').value.trim(); if(!charDesc) return alert('Describe a tu personaje');
@@ -362,6 +417,37 @@ async function genVid(b){
     loadFeed();
   }catch(e){ clearInterval(tick); spin.textContent='No se pudo crear — intenta de nuevo'; }
   b.disabled=false; b.textContent='▶ Crear video';
+}
+async function genLandscape(b){
+  const topic=document.getElementById('ltopic').value.trim();
+  if(!topic) return alert('Describe el paisaje');
+  if(b.disabled) return;
+  b.disabled=true; b.textContent='Creando…';
+  const spin=document.getElementById('lspin'), preview=document.getElementById('lprev');
+  spin.textContent='Generando el paisaje'; preview.innerHTML=''; document.getElementById('lengine').innerHTML='';
+  try{
+    const res=await fetch('/api/landscape',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      topic,
+      style:document.getElementById('lstyle').value,
+      dialogue:document.getElementById('ldialog').value,
+      voice:document.getElementById('lvoice').value,
+      duration_s:parseFloat(document.getElementById('ldur').value)})});
+    let r=await res.json().catch(()=>({}));
+    if(res.ok&&r.ok&&r.video_id) r=await pollVideoStatus(r.video_id);
+    if(!res.ok||!r.ok){
+      const message=(r.error&&r.error.message)||'No se pudo crear el paisaje';
+      throw new Error(message);
+    }
+    spin.textContent='';
+    const style=document.getElementById('lstyle').selectedOptions[0].textContent;
+    document.getElementById('lengine').innerHTML='<div class="engine-badge">🏞 Paisaje '+style+'</div>';
+    preview.innerHTML='<video class="fadein" src="'+r.download+'" controls autoplay loop muted playsinline></video><br><a class="dl" href="'+r.download+'" download="nova-paisaje.mp4">⬇ Descargar paisaje</a>';
+    loadFeed();
+  }catch(e){
+    spin.textContent='';
+    Swal.fire({icon:'error',title:'No se pudo crear',text:e.message||'Intenta de nuevo',background:'#151522',color:'#fff',confirmButtonColor:'#ff2d55'});
+  }
+  b.disabled=false; b.textContent='✦ Crear paisaje';
 }
 </script>
 </body>

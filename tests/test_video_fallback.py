@@ -13,6 +13,7 @@ external calls (_animate_*, _render, _dl_poll, _tts, _store_video,
 _vreq_log) are mocked; no real network/ffmpeg/playwright call is made.
 """
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -146,3 +147,39 @@ def test_engine_static_uses_render_directly(work_dir, no_network):
     main._animate_kaggle.assert_not_called()
     main._animate_vidu.assert_not_called()
     main._render.assert_called_once()
+
+
+def test_landscape_uses_local_style_fallback(work_dir, no_network, monkeypatch):
+    def render_ok(img, audio, srt, out, dur):
+        assert img.read_bytes() == main.LANDSCAPE_FALLBACKS["fantasy"].read_bytes()
+        assert audio is None
+        assert srt is None
+        assert dur == 10.0
+        out.write_bytes(b"landscape-video")
+
+    monkeypatch.setattr(
+        main,
+        "_dl_poll",
+        Mock(side_effect=RuntimeError("pollinations unavailable")),
+    )
+    monkeypatch.setattr(main, "_render_landscape", Mock(side_effect=render_ok))
+
+    req = main.LandscapeReq(
+        topic="Un valle atravesado por cascadas",
+        style="fantasy",
+    )
+    resp = run(main._landscape_inner(req, "land_fallback"))
+
+    assert resp["ok"] is True
+    assert resp["engine_used"] == "landscape-fantasy"
+    assert resp["image_source"] == "local"
+    main._render_landscape.assert_called_once()
+
+
+def test_landscape_prompt_forbids_people_and_text():
+    prompt = main._landscape_image_prompt("Montañas al amanecer", "anime")
+    decoded = main.urllib.parse.unquote(prompt)
+
+    assert "Montañas al amanecer" in decoded
+    assert "no people" in decoded
+    assert "no text" in decoded

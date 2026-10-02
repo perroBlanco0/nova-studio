@@ -25,6 +25,9 @@ WORK = Path("/tmp/novavids")
 WORK.mkdir(exist_ok=True)
 UPLOADS = WORK / "uploads"
 UPLOADS.mkdir(exist_ok=True)
+ROOT = Path(__file__).resolve().parent
+LANDSCAPE_ASSETS = ROOT / "assets" / "placeholders"
+AUDIO_ASSETS = ROOT / "assets" / "audio"
 
 
 # ============================================================
@@ -524,11 +527,11 @@ def _sub_filter(srt: Path) -> str:
 
 def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: float):
     frames = int(dur * 24)
-    step = 0.15 / frames
-    # render at output size directly — avoids the 2048x3072 intermediate that OOMs free tier
-    vf = ("scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
-          "zoompan=z='min(zoom+%.6f,1.15)':"
-          "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=720x1280:fps=24" % (step, frames))
+    vf = ("scale=820:1458:force_original_aspect_ratio=increase,"
+          "crop=820:1458,"
+          "zoompan=z=1:"
+          "x='(iw-ow)*on/%d':y='(ih-oh)/2':"
+          "d=%d:s=720x1280:fps=24" % (max(1, frames - 1), frames))
     if srt and srt.exists() and srt.read_text().strip():
         vf += _sub_filter(srt)
     if audio:
@@ -542,6 +545,49 @@ def _render(img: Path, audio: Path | None, srt: Path | None, out: Path, dur: flo
                "-filter_complex", vf, "-t", str(dur), "-c:v", "libx264",
                "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-shortest", str(out)]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def _render_landscape(img: Path, audio: Path | None, srt: Path | None,
+                      out: Path, dur: float):
+    frames = max(1, int(dur * 30))
+    vf = ("scale=1220:2169:force_original_aspect_ratio=increase,"
+          "crop=1220:2169,"
+          "zoompan=z=1:"
+          "x='(iw-ow)*on/%d':y='(ih-oh)/2':"
+          "d=%d:s=1080x1920:fps=30" % (max(1, frames - 1), frames))
+    if srt and srt.exists() and srt.read_text().strip():
+        vf += _sub_filter(srt)
+
+    music = AUDIO_ASSETS / "background.mp3"
+    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(img)]
+    if audio:
+        cmd += ["-i", str(audio)]
+    if music.exists():
+        cmd += ["-stream_loop", "-1", "-i", str(music)]
+
+    audio_inputs = []
+    next_audio_input = 1
+    if audio:
+        audio_inputs.append(f"[{next_audio_input}:a]volume=1[voice]")
+        next_audio_input += 1
+    if music.exists():
+        audio_inputs.append(f"[{next_audio_input}:a]volume=0.15[bg]")
+
+    filters = [f"[0:v]{vf}[v]", *audio_inputs]
+    if audio and music.exists():
+        filters.append("[voice][bg]amix=inputs=2:duration=longest[a]")
+    elif audio:
+        filters.append("[voice]anull[a]")
+    elif music.exists():
+        filters.append("[bg]anull[a]")
+    else:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
+        filters.append("[1:a]anull[a]")
+
+    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
+            "-t", str(dur), "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out)]
     subprocess.run(cmd, check=True, capture_output=True)
 
 
@@ -586,6 +632,49 @@ class VidReq(BaseModel):
 
 class VidUpd(BaseModel):
     scene: str
+
+
+class LandscapeReq(BaseModel):
+    topic: str
+    style: str = "anime"
+    dialogue: str = ""
+    voice: str = "none"
+    duration_s: float = 10.0
+    seed: int | None = None
+
+
+LANDSCAPE_STYLES = {
+    "anime": (
+        "vertical 9:16 cinematic anime landscape, no people, hand-painted "
+        "anime film background, layered depth, atmospheric clouds, vivid "
+        "natural light, no text"
+    ),
+    "realistic": (
+        "vertical 9:16 photorealistic natural landscape, no people, cinematic "
+        "photography, realistic sky and water, detailed foreground, natural "
+        "light, no text"
+    ),
+    "fantasy": (
+        "vertical 9:16 epic fantasy landscape, no people, floating islands, "
+        "magical waterfalls, luminous vegetation, layered cinematic depth, "
+        "no text"
+    ),
+}
+
+LANDSCAPE_FALLBACKS = {
+    "anime": LANDSCAPE_ASSETS / "landscape-anime.png",
+    "realistic": LANDSCAPE_ASSETS / "landscape-realistic.png",
+    "fantasy": LANDSCAPE_ASSETS / "landscape-fantasy.png",
+}
+
+
+def _landscape_image_prompt(topic: str, style: str) -> str:
+    subject = topic.strip().rstrip(",")
+    prompt = _clip_prompt(
+        f"landscape: {subject}, style: {LANDSCAPE_STYLES[style]}",
+        MAX_IMAGE_PROMPT_CHARS,
+    )
+    return urllib.parse.quote(prompt)
 
 
 @app.exception_handler(HTTPException)
@@ -735,6 +824,24 @@ async def video(req: VidReq):
     return {"ok": True, "video_id": vid, "status": "processing"}
 
 
+@app.post("/api/landscape")
+async def landscape(req: LandscapeReq):
+    if not req.topic.strip():
+        raise HTTPException(400, "topic is required")
+    if req.style not in LANDSCAPE_STYLES:
+        raise HTTPException(400, "style must be anime|realistic|fantasy")
+    if req.voice not in ("female", "male", "none"):
+        raise HTTPException(400, "voice must be female|male|none")
+    if not 4.0 <= req.duration_s <= 20.0:
+        raise HTTPException(400, "duration_s must be between 4 and 20")
+
+    _job_gc()
+    vid = uuid.uuid4().hex[:10]
+    JOBS[vid] = {"status": "processing", "ts": time.time()}
+    asyncio.create_task(_run_landscape_job(req, vid))
+    return {"ok": True, "video_id": vid, "status": "processing"}
+
+
 @app.get("/api/video/{vid}/status")
 async def video_status(vid: str):
     job = JOBS.get(vid)
@@ -755,6 +862,73 @@ async def _run_job(req: VidReq, vid: str, t0: float):
         _vreq_log(vid, req, "error_500", str(e), t0)
         JOBS[vid] = {"status": "error", "ts": time.time(),
                      "error": {"code": 500, "message": str(e)[:300]}}
+
+
+async def _run_landscape_job(req: LandscapeReq, vid: str):
+    try:
+        resp = await _landscape_inner(req, vid)
+        JOBS[vid] = {"status": "ok", "ts": time.time(), **resp}
+    except HTTPException as e:
+        JOBS[vid] = {"status": "error", "ts": time.time(),
+                     "error": {"code": e.status_code, "message": e.detail}}
+    except Exception as e:
+        JOBS[vid] = {"status": "error", "ts": time.time(),
+                     "error": {"code": 500, "message": str(e)[:300]}}
+
+
+async def _landscape_inner(req: LandscapeReq, vid: str):
+    seed = req.seed if req.seed and 0 < req.seed <= 2**31 else random.randint(1, 2**31 - 1)
+    d = WORK / vid
+    d.mkdir()
+    img = d / "scene.png"
+    image_source = "pollinations"
+    try:
+        await asyncio.to_thread(
+            _dl_poll,
+            _landscape_image_prompt(req.topic, req.style),
+            seed,
+            img,
+            _scene_image_negative(),
+        )
+    except Exception:
+        fallback = LANDSCAPE_FALLBACKS[req.style]
+        if not fallback.exists():
+            raise HTTPException(502, "image gen failed and local fallback is missing")
+        img.write_bytes(fallback.read_bytes())
+        image_source = "local"
+
+    audio = srt = None
+    narration_error = None
+    if req.dialogue.strip() and req.voice != "none":
+        audio, srt = d / "voice.mp3", d / "voice.srt"
+        try:
+            await _tts(req.dialogue, audio, srt, req.voice)
+        except Exception as e:
+            audio = srt = None
+            narration_error = str(e)[:180]
+
+    dur = max(req.duration_s, len(req.dialogue.split()) / 2.7 if req.dialogue else 0)
+    dur = min(20.0, dur)
+    out = d / "final.mp4"
+    await asyncio.to_thread(_render_landscape, img, audio, srt, out, dur)
+    await asyncio.to_thread(
+        _store_video,
+        vid,
+        "",
+        f"Paisaje {req.style}: {req.topic}",
+        out,
+    )
+    resp = {
+        "ok": True,
+        "video_id": vid,
+        "download": f"/api/video/{vid}/final.mp4",
+        "preview": f"/api/video/{vid}/preview.png",
+        "engine_used": f"landscape-{req.style}",
+        "image_source": image_source,
+    }
+    if narration_error:
+        resp["fallback"] = "voz no disponible; video generado con música"
+    return resp
 
 
 async def _mux_or_move(src: Path, audio, srt, out: Path):

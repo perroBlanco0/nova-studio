@@ -5,4 +5,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py vidu_gen.py wan_gen.py ./
 COPY static ./static
+COPY assets/placeholders ./assets/placeholders
+COPY assets/audio ./assets/audio
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
